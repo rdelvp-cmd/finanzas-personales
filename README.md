@@ -15,7 +15,7 @@ Proyecto de Neon `finanzas-personales`, base `finanzas`. El esquema está en [`d
 
 Las 24 quincenas de 2026 ya están importadas de RV 2026; las plantillas aplican desde enero de 2027.
 
-Los cambios posteriores están en [`db/migraciones/`](db/migraciones/): una base nueva se crea con `schema.sql` y luego cada migración en orden (002, 003…).
+Los cambios posteriores están en [`db/migraciones/`](db/migraciones/): una base nueva se crea con `schema.sql` y luego cada migración en orden (002, 003, 004…).
 
 ## Correr localmente
 

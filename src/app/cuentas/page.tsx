@@ -10,21 +10,24 @@ const campo = "rounded border border-stone-300 bg-transparent px-2 py-1 dark:bor
 export default async function CuentasPage() {
   const cuentas = await sql`select * from v_saldos_cuentas where activo order by orden, id`;
   const bancos = cuentas.filter((c) => c.tipo !== "tarjeta");
-  const tarjetas = cuentas.filter((c) => c.tipo === "tarjeta");
+  const tarjetas = cuentas.filter((c) => c.tipo === "tarjeta" && c.principal_id == null);
+  const partesUSD = new Map(cuentas.filter((c) => c.principal_id != null).map((c) => [c.principal_id, c]));
   const totalQ = bancos.filter((c) => c.moneda === "GTQ").reduce((s, c) => s + num(c.saldo), 0);
   const totalUSD = bancos.filter((c) => c.moneda === "USD").reduce((s, c) => s + num(c.saldo), 0);
-  const deuda = tarjetas.reduce((s, c) => s + num(c.saldo), 0);
+  const deudaQ = cuentas.filter((c) => c.tipo === "tarjeta" && c.moneda === "GTQ").reduce((s, c) => s + num(c.saldo), 0);
+  const deudaUSD = cuentas.filter((c) => c.tipo === "tarjeta" && c.moneda === "USD").reduce((s, c) => s + num(c.saldo), 0);
 
   return (
     <>
       <h1 className="mb-2 text-lg font-semibold">Cuentas</h1>
       <p className="mb-6 text-sm text-stone-600 dark:text-stone-400">
         En bancos: <b>{quetzales(totalQ)}</b>
-        {totalUSD !== 0 && <> y <b>{dinero(totalUSD, "USD")}</b></>}. Deuda en tarjetas: <b className="text-red-600">{quetzales(-deuda)}</b>.
+        {totalUSD !== 0 && <> y <b>{dinero(totalUSD, "USD")}</b></>}. Deuda en tarjetas: <b className="text-red-600">{quetzales(-deudaQ)}</b>
+        {deudaUSD !== 0 && <> y <b className="text-red-600">{dinero(-deudaUSD, "USD")}</b></>}.
       </p>
 
       <Grupo titulo="Bancos" cuentas={bancos} />
-      <Grupo titulo="Tarjetas de crédito" cuentas={tarjetas} tarjeta />
+      <Grupo titulo="Tarjetas de crédito" cuentas={tarjetas} partesUSD={partesUSD} />
 
       <h2 className="mt-8 mb-2 font-semibold">Nueva cuenta</h2>
       <form action={crearCuenta} className="grid grid-cols-2 gap-2 rounded-lg bg-white p-4 shadow-sm sm:grid-cols-4 dark:bg-stone-900">
@@ -47,13 +50,14 @@ export default async function CuentasPage() {
   );
 }
 
-function Grupo({ titulo, cuentas, tarjeta }: { titulo: string; cuentas: Record<string, any>[]; tarjeta?: boolean }) {
+function Grupo({ titulo, cuentas, partesUSD }: { titulo: string; cuentas: Record<string, any>[]; partesUSD?: Map<any, Record<string, any>> }) {
   return (
     <section className="mb-4 rounded-lg bg-white px-4 py-2 shadow-sm dark:bg-stone-900">
       <h2 className="border-b border-stone-200 py-1 text-sm font-semibold dark:border-stone-800">{titulo}</h2>
       <ul className="divide-y divide-stone-100 dark:divide-stone-800">
         {cuentas.map((c) => {
           const saldo = num(c.saldo);
+          const usd = partesUSD?.get(c.id);
           return (
             <li key={c.id}>
               <Link href={`/cuentas/${c.id}`} className="flex items-center justify-between gap-2 py-3 hover:opacity-80">
@@ -63,9 +67,14 @@ function Grupo({ titulo, cuentas, tarjeta }: { titulo: string; cuentas: Record<s
                     {[c.banco, c.rol === "salario" ? "aquí cae el salario" : c.rol === "provisiones" ? "aquí van las provisiones" : null].filter(Boolean).join(" · ")}
                   </p>
                 </div>
-                <span className={`font-semibold tabular-nums ${saldo < 0 ? "text-red-600" : ""}`}>
-                  {tarjeta ? `Debes ${quetzales(-saldo)}` : dinero(saldo, c.moneda)}
-                </span>
+                {partesUSD ? (
+                  <span className="text-right font-semibold tabular-nums">
+                    <span className="block">{dinero(-saldo, c.moneda)}</span>
+                    {usd && <span className="block">{dinero(-num(usd.saldo), "USD")}</span>}
+                  </span>
+                ) : (
+                  <span className={`font-semibold tabular-nums ${saldo < 0 ? "text-red-600" : ""}`}>{dinero(saldo, c.moneda)}</span>
+                )}
               </Link>
             </li>
           );

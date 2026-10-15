@@ -23,6 +23,12 @@ export async function crearCuenta(form: FormData) {
     insert into cuentas (nombre, banco, tipo, moneda, orden)
     values (${nombre}, ${texto(form.get("banco"))}, ${tipo}, ${moneda}, (select coalesce(max(orden), 0) + 1 from cuentas))
     returning id`;
+  // Las tarjetas llevan saldo en quetzales y en dólares
+  if (tipo === "tarjeta" && moneda === "GTQ") {
+    await sql`
+      insert into cuentas (nombre, banco, tipo, moneda, orden, principal_id)
+      select nombre || ' (US$)', banco, 'tarjeta', 'USD', orden, id from cuentas where id = ${c.id}`;
+  }
   revalidatePath("/cuentas");
   redirect(`/cuentas/${c.id}`);
 }
@@ -41,6 +47,12 @@ export async function configurarCuenta(form: FormData) {
         fecha_saldo = ${fecha(form.get("fecha_saldo"))},
         activo = ${form.get("activo") === "on"}
     where id = ${id}`;
+  // La parte en dólares de una tarjeta sigue el nombre, banco y estado de la principal
+  await sql`
+    update cuentas h
+    set nombre = p.nombre || ' (US$)', banco = p.banco, activo = p.activo
+    from cuentas p
+    where p.id = ${id} and h.principal_id = p.id`;
   revalidatePath("/cuentas", "layout");
 }
 
