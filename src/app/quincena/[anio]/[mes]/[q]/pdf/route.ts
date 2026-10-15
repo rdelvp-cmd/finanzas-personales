@@ -64,6 +64,17 @@ export async function GET(_req: Request, { params }: { params: Params }) {
     where c.activo
     group by c.id
     order by c.orden, c.id`;
+  // Movimientos de cada cuenta desde el día de la quincena hasta el corte
+  const desde = iso(new Date(periodo.fecha));
+  const movimientos = await sql`
+    select t.cuenta_id, t.fecha, t.monto, t.tipo, t.nota, co.nombre as concepto,
+      (select cu.nombre from transacciones t2 join cuentas cu on cu.id = t2.cuenta_id
+       where t2.grupo = t.grupo and t2.id <> t.id limit 1) as contraparte
+    from transacciones t
+    left join movimientos m on m.id = t.movimiento_id
+    left join conceptos co on co.id = m.concepto_id
+    where t.fecha between ${desde}::date and ${corte}::date
+    order by t.fecha, t.id`;
 
   const doc = await PDFDocument.create();
   const font = await doc.embedFont(StandardFonts.Helvetica);
@@ -135,6 +146,46 @@ export async function GET(_req: Request, { params }: { params: Params }) {
     ["Provisionado", suma(egresos.filter((f) => f.provisionado))],
     ["Pendiente", suma(egresos.filter((f) => !f.pagado && !f.provisionado))],
   ]);
+
+  // Detalle por cuenta y tarjeta (cada moneda por separado)
+  h.titulo(`Movimientos del ${fechaCorta(desde)} al ${fechaCorta(corte)}`);
+  const NOMBRE_TIPO: Record<string, string> = { ingreso: "Depósito", gasto: "Gasto", transferencia: "Transferencia", ajuste: "Ajuste de cuadre" };
+  const conMovimientos = cuentas.filter((c) => movimientos.some((t) => t.cuenta_id === c.id));
+  if (conMovimientos.length === 0) {
+    h.texto("No hubo movimientos en las cuentas en este período.", M, { gris: true });
+    h.baja(4);
+  }
+  for (const c of conMovimientos) {
+    const lista = movimientos.filter((t) => t.cuenta_id === c.id);
+    const tarjeta = c.tipo === "tarjeta";
+    h.espacio(44); h.baja(18);
+    h.texto(c.nombre, M, { bold: true });
+    h.texto(tarjeta ? "tarjeta de crédito" : c.moneda === "USD" ? "dólares" : "quetzales", M + bold.widthOfTextAtSize(limpio(c.nombre), 9) + 8, { gris: true });
+    for (const t of lista) {
+      const v = num(t.monto);
+      // En tarjetas, un monto negativo es una compra (sube la deuda)
+      const tipo = tarjeta && t.tipo === "gasto" ? "Compra" : tarjeta && v > 0 ? "Pago / abono" : NOMBRE_TIPO[t.tipo] ?? t.tipo;
+      const detalle = [t.concepto, t.contraparte && (v < 0 ? `a ${t.contraparte}` : `de ${t.contraparte}`), t.nota].filter(Boolean).join(" · ");
+      h.espacio(14); h.baja(13); h.linea(0.25);
+      h.texto(fechaCorta(t.fecha), M + 8, { gris: true });
+      h.texto(tipo, M + 70);
+      h.texto(detalle.length > 52 ? detalle.slice(0, 51) + "..." : detalle, M + 160, { gris: true });
+      // En tarjetas se muestra sin signo: el tipo dice si es compra o pago
+      h.texto(tarjeta ? dinero(Math.abs(v), c.moneda) : `${v > 0 ? "+" : ""}${dinero(v, c.moneda)}`, D, { derecha: true });
+    }
+    const neto = lista.reduce((s, t) => s + num(t.monto), 0);
+    h.espacio(14); h.baja(13); h.linea(0.5);
+    if (tarjeta) {
+      const compras = -lista.filter((t) => num(t.monto) < 0).reduce((s, t) => s + num(t.monto), 0);
+      const pagos = lista.filter((t) => num(t.monto) > 0).reduce((s, t) => s + num(t.monto), 0);
+      h.texto(`Compras: ${dinero(compras, c.moneda)}`, M + 70, { bold: true });
+      h.texto(`Pagos: ${dinero(pagos, c.moneda)}`, M + 230, { bold: true });
+      h.texto(`${neto <= 0 ? "Deuda sube" : "Deuda baja"} ${dinero(Math.abs(neto), c.moneda)}`, D, { bold: true, derecha: true });
+    } else {
+      h.texto("Movimiento neto", M + 70, { bold: true });
+      h.texto(`${neto > 0 ? "+" : ""}${dinero(neto, c.moneda)}`, D, { bold: true, derecha: true });
+    }
+  }
 
   // Saldos: bancos y tarjetas (cada tarjeta con su parte en dólares)
   h.titulo(`Saldos de las cuentas al ${fechaCorta(corte)}`);
