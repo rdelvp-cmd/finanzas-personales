@@ -1,0 +1,134 @@
+import Link from "next/link";
+import { notFound } from "next/navigation";
+import { num, sql } from "@/lib/db";
+import { anterior, etiqueta, parse, quetzales, ruta, siguiente } from "@/lib/quincena";
+import { agregarMovimiento, cambiarEstado, generar } from "../../../actions";
+import { Fila, type Movimiento } from "../../../Fila";
+
+export const dynamic = "force-dynamic";
+
+type Params = Promise<{ anio: string; mes: string; q: string }>;
+
+export default async function QuincenaPage({ params }: { params: Params }) {
+  const p = await params;
+  const qn = parse(p.anio, p.mes, p.q);
+  if (!qn) notFound();
+
+  const [periodo] = await sql`
+    select * from v_resumen_quincena where anio = ${qn.anio} and mes = ${qn.mes} and quincena = ${qn.q}`;
+
+  const nav = (
+    <div className="mb-4 flex items-center justify-between text-sm">
+      <Link href={ruta(anterior(qn))} className="rounded px-2 py-1 hover:bg-stone-200 dark:hover:bg-stone-800">← Anterior</Link>
+      <h1 className="text-lg font-semibold">{etiqueta(qn)}</h1>
+      <Link href={ruta(siguiente(qn))} className="rounded px-2 py-1 hover:bg-stone-200 dark:hover:bg-stone-800">Siguiente →</Link>
+    </div>
+  );
+
+  if (!periodo) {
+    return (
+      <>
+        {nav}
+        <div className="rounded-lg border border-dashed border-stone-300 p-8 text-center dark:border-stone-700">
+          <p className="mb-4 text-stone-600 dark:text-stone-400">Esta quincena todavía no existe.</p>
+          <form action={generar.bind(null, qn.anio, qn.mes, qn.q)}>
+            <button className="rounded bg-emerald-700 px-4 py-2 font-medium text-white">Generar desde plantillas</button>
+          </form>
+        </div>
+      </>
+    );
+  }
+
+  const periodoId = Number(periodo.periodo_id);
+  const cerrada = periodo.estado === "cerrada";
+  const filas = await sql`
+    select m.id, c.nombre as concepto, cat.nombre as categoria, m.tipo, m.monto_plan, m.monto_real, m.pagado, m.nota
+    from movimientos m
+    join conceptos c on c.id = m.concepto_id
+    join categorias cat on cat.id = c.categoria_id
+    where m.periodo_id = ${periodoId}
+    order by (m.tipo = 'ingreso') desc, cat.nombre, m.monto_plan desc`;
+  const conceptos = await sql`select id, nombre from conceptos order by nombre`;
+
+  const grupos = new Map<string, Movimiento[]>();
+  for (const f of filas) {
+    const m: Movimiento = {
+      id: Number(f.id),
+      concepto: f.concepto,
+      tipo: f.tipo,
+      monto_plan: num(f.monto_plan),
+      monto_real: f.monto_real == null ? null : num(f.monto_real),
+      pagado: f.pagado,
+      nota: f.nota,
+    };
+    const g = f.tipo === "ingreso" ? "Ingresos" : f.categoria;
+    grupos.set(g, [...(grupos.get(g) ?? []), m]);
+  }
+
+  const ingresos = num(periodo.ingresos);
+  const egresos = num(periodo.egresos);
+  const saldoInicial = num(periodo.saldo_inicial);
+  const saldoFinal = num(periodo.saldo_final);
+  const pendientes = filas.filter((f) => f.tipo !== "ingreso" && !f.pagado);
+  const porPagar = pendientes.reduce((s, f) => s + num(f.monto_real ?? f.monto_plan), 0);
+
+  return (
+    <>
+      {nav}
+
+      <section className="mb-6 grid grid-cols-2 gap-3 sm:grid-cols-4">
+        <Dato titulo="Saldo inicial" valor={saldoInicial} />
+        <Dato titulo="Ingresos" valor={ingresos} />
+        <Dato titulo="Egresos" valor={egresos} />
+        <Dato titulo="Disponible" valor={saldoFinal} fuerte />
+      </section>
+
+      <p className="mb-4 text-sm text-stone-600 dark:text-stone-400">
+        {pendientes.length === 0
+          ? "Todo pagado en esta quincena."
+          : `Faltan ${pendientes.length} pagos por ${quetzales(porPagar)}.`}{" "}
+        {cerrada && "Quincena cerrada."}
+      </p>
+
+      {[...grupos].map(([grupo, movs]) => (
+        <section key={grupo} className="mb-4 rounded-lg bg-white px-4 py-2 shadow-sm dark:bg-stone-900">
+          <h2 className="flex justify-between border-b border-stone-200 py-1 text-sm font-semibold dark:border-stone-800">
+            <span>{grupo}</span>
+            <span className="tabular-nums">{quetzales(movs.reduce((s, m) => s + (m.monto_real ?? m.monto_plan), 0))}</span>
+          </h2>
+          <ul className="divide-y divide-stone-100 dark:divide-stone-800">
+            {movs.map((m) => <Fila key={m.id} m={m} cerrada={cerrada} />)}
+          </ul>
+        </section>
+      ))}
+
+      {!cerrada && (
+        <form action={agregarMovimiento} className="mb-6 flex flex-wrap gap-2 rounded-lg bg-white p-4 shadow-sm dark:bg-stone-900">
+          <input type="hidden" name="periodo_id" value={periodoId} />
+          <select name="concepto_id" required className="flex-1 rounded border border-stone-300 bg-transparent px-2 py-1 dark:border-stone-700">
+            {conceptos.map((c) => <option key={c.id} value={c.id}>{c.nombre}</option>)}
+          </select>
+          <input name="monto" inputMode="decimal" placeholder="Monto" required className="w-28 rounded border border-stone-300 bg-transparent px-2 py-1 text-right dark:border-stone-700" />
+          <input name="nota" placeholder="Nota" className="w-full rounded border border-stone-300 bg-transparent px-2 py-1 sm:w-auto sm:flex-1 dark:border-stone-700" />
+          <button className="rounded bg-stone-800 px-3 py-1 text-white dark:bg-stone-200 dark:text-stone-900">Agregar</button>
+        </form>
+      )}
+
+      <form action={cambiarEstado.bind(null, periodoId, !cerrada)} className="text-right">
+        <button className="text-sm text-stone-600 underline dark:text-stone-400">
+          {cerrada ? "Reabrir quincena" : "Cerrar quincena (su saldo pasa a la siguiente)"}
+        </button>
+      </form>
+    </>
+  );
+}
+
+function Dato({ titulo, valor, fuerte }: { titulo: string; valor: number; fuerte?: boolean }) {
+  const color = fuerte ? (valor < 0 ? "text-red-600" : "text-emerald-700 dark:text-emerald-400") : "";
+  return (
+    <div className="rounded-lg bg-white p-3 shadow-sm dark:bg-stone-900">
+      <p className="text-xs text-stone-500">{titulo}</p>
+      <p className={`text-lg font-semibold tabular-nums ${color}`}>{quetzales(valor)}</p>
+    </div>
+  );
+}
