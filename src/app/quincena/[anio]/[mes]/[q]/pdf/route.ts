@@ -88,16 +88,23 @@ export async function GET(_req: Request, { params }: { params: Params }) {
   h.baja(22);
 
   // Resumen
+  const real = (f: Record<string, any>) => num(f.monto_real ?? f.monto_plan);
+  const recibido = filas.filter((f) => f.tipo === "ingreso" && f.pagado).reduce((s, f) => s + real(f), 0);
+  const pagado = filas.filter((f) => f.tipo !== "ingreso" && (f.pagado || f.provisionado)).reduce((s, f) => s + real(f), 0);
   const resumen: [string, number][] = [
     ["Saldo inicial", num(periodo.saldo_inicial)],
-    ["Ingresos", num(periodo.ingresos)],
-    ["Egresos", num(periodo.egresos)],
-    ["Saldo final", num(periodo.saldo_final)],
+    ["Recibido", recibido],
+    ["Pagado y provisionado", pagado],
+    ["Disponible", num(periodo.saldo_inicial) + recibido - pagado],
   ];
   const col = (D - M) / 4;
   resumen.forEach(([t], i) => h.texto(t, M + col * i, { gris: true }));
   h.baja(14);
   resumen.forEach(([, v], i) => h.texto(dinero(v, "GTQ"), M + col * i, { size: 12, bold: true }));
+  if (Math.abs(num(periodo.saldo_final) - (num(periodo.saldo_inicial) + recibido - pagado)) >= 0.01) {
+    h.baja(16);
+    h.texto(`Con lo pendiente por recibir y pagar, el saldo quedaría en ${dinero(num(periodo.saldo_final), "GTQ")}.`, M, { gris: true });
+  }
   h.baja(10);
 
   const monto = (f: Record<string, any>) => num(f.monto_real ?? f.monto_plan);
