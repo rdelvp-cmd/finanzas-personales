@@ -68,13 +68,17 @@ export default async function QuincenaPage({ params }: { params: Params }) {
     grupos.set(g, [...(grupos.get(g) ?? []), { ...m, provision: (provisionDe.get(Number(f.concepto_id)) ?? 0) - (m.provisionado ? (m.monto_real ?? m.monto_plan) : 0) }]);
   }
 
-  const ingresos = num(periodo.ingresos);
-  const egresos = num(periodo.egresos);
   const saldoInicial = num(periodo.saldo_inicial);
   const saldoFinal = num(periodo.saldo_final);
   const pendientes = filas.filter((f) => f.tipo !== "ingreso" && !f.pagado && !f.provisionado);
   const provisionado = filas.filter((f) => f.provisionado).reduce((s, f) => s + num(f.monto_real ?? f.monto_plan), 0);
   const porPagar = pendientes.reduce((s, f) => s + num(f.monto_real ?? f.monto_plan), 0);
+  // Lo real: solo lo recibido y lo pagado o provisionado; lo pendiente queda aparte
+  const recibido = filas.filter((f) => f.tipo === "ingreso" && f.pagado).reduce((s, f) => s + num(f.monto_real ?? f.monto_plan), 0);
+  const porRecibir = filas.filter((f) => f.tipo === "ingreso" && !f.pagado).reduce((s, f) => s + num(f.monto_real ?? f.monto_plan), 0);
+  const pagado = filas.filter((f) => f.tipo !== "ingreso" && (f.pagado || f.provisionado)).reduce((s, f) => s + num(f.monto_real ?? f.monto_plan), 0);
+  const disponible = saldoInicial + recibido - pagado;
+  const [monetaria] = await sql`select saldo from v_saldos_cuentas where rol = 'salario'`;
 
   return (
     <>
@@ -98,9 +102,9 @@ export default async function QuincenaPage({ params }: { params: Params }) {
             <p className="text-[10px] text-stone-400">Escribe y presiona Enter</p>
           </form>
         )}
-        <Dato titulo="Ingresos" valor={ingresos} />
-        <Dato titulo="Egresos" valor={egresos} />
-        <Dato titulo="Disponible" valor={saldoFinal} fuerte />
+        <Dato titulo="Recibido" valor={recibido} />
+        <Dato titulo="Pagado y provisionado" valor={pagado} />
+        <Dato titulo="Disponible hoy" valor={disponible} fuerte />
       </section>
 
       <p className="mb-4 text-sm text-stone-600 dark:text-stone-400">
@@ -108,6 +112,9 @@ export default async function QuincenaPage({ params }: { params: Params }) {
           ? "Todo pagado en esta quincena."
           : `Faltan ${pendientes.length} pagos por ${quetzales(porPagar)}.`}{" "}
         {provisionado > 0 && `Provisionaste ${quetzales(provisionado)} a tu ahorro.`}{" "}
+        {porRecibir > 0 && `Falta recibir ${quetzales(porRecibir)}.`}{" "}
+        {(pendientes.length > 0 || porRecibir > 0) && `Al completar todo te quedarían ${quetzales(saldoFinal)}.`}{" "}
+        {monetaria && `Tu Monetaria tiene ${quetzales(num(monetaria.saldo))}.`}{" "}
         {cerrada && "Quincena cerrada."}
       </p>
 
