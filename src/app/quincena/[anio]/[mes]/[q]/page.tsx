@@ -135,11 +135,17 @@ export default async function QuincenaPage({ params }: { params: Params }) {
         </form>
       )}
 
-      <form action={cambiarEstado.bind(null, periodoId, !cerrada)} className="text-right">
-        <button className="text-sm text-stone-600 underline dark:text-stone-400">
-          {cerrada ? "Reabrir quincena" : "Cerrar quincena (su saldo pasa a la siguiente)"}
-        </button>
-      </form>
+      <div className="flex flex-wrap items-center justify-between gap-2">
+        {/* enlace normal para que el navegador descargue el archivo */}
+        <a href={`${ruta(qn)}/pdf`} className="rounded bg-stone-800 px-3 py-1 text-sm text-white dark:bg-stone-200 dark:text-stone-900">
+          Descargar PDF
+        </a>
+        <form action={cambiarEstado.bind(null, periodoId, !cerrada)}>
+          <button className="text-sm text-stone-600 underline dark:text-stone-400">
+            {cerrada ? "Reabrir quincena" : "Cerrar quincena (su saldo pasa a la siguiente)"}
+          </button>
+        </form>
+      </div>
     </>
   );
 }
