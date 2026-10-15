@@ -17,6 +17,11 @@ export default async function CuentaPage({ params }: { params: Promise<{ id: str
 
   const tarjeta = c.tipo === "tarjeta";
   const saldo = num(c.saldo);
+  // Tarjeta en dos monedas: la principal (Q) y su parte en dólares
+  const parte = c.principal_id != null;
+  const monedas = tarjeta
+    ? await sql`select id, moneda, saldo from v_saldos_cuentas where id = ${c.principal_id ?? id} or principal_id = ${c.principal_id ?? id} order by moneda`
+    : [];
   const otras = await sql`select id, nombre, moneda from cuentas where activo and id <> ${id} order by orden, id`;
   const transacciones = await sql`
     select t.id, t.fecha, t.monto, t.tipo, t.nota, t.movimiento_id, co.nombre as concepto,
@@ -28,16 +33,16 @@ export default async function CuentaPage({ params }: { params: Promise<{ id: str
     where t.cuenta_id = ${id}
     order by t.fecha desc, t.id desc
     limit 60`;
-  const conceptos = tarjeta ? await sql`select id, nombre, cuenta_destino_id from conceptos order by nombre` : [];
+  const conceptos = tarjeta && c.moneda === "GTQ" ? await sql`select id, nombre, cuenta_destino_id from conceptos order by nombre` : [];
   const vinculado = conceptos.find((k) => k.cuenta_destino_id === id);
   const fechaSaldo = new Date(c.fecha_saldo).toISOString().slice(0, 10);
 
   return (
     <>
       <Link href="/cuentas" className="text-sm text-stone-500">← Cuentas</Link>
-      <div className="mt-2 mb-6 flex items-end justify-between gap-2">
+      <div className={`mt-2 ${monedas.length > 1 ? "mb-3" : "mb-6"} flex items-end justify-between gap-2`}>
         <div>
-          <h1 className="text-lg font-semibold">{c.nombre}</h1>
+          <h1 className="text-lg font-semibold">{parte ? c.nombre.replace(/ \(US\$\)$/, "") : c.nombre}</h1>
           <p className="text-xs text-stone-500">{[c.banco, c.moneda === "USD" ? "dólares" : "quetzales"].filter(Boolean).join(" · ")}</p>
         </div>
         <div className="text-right">
@@ -48,11 +53,25 @@ export default async function CuentaPage({ params }: { params: Promise<{ id: str
         </div>
       </div>
 
+      {monedas.length > 1 && (
+        <nav className="mb-6 grid grid-cols-2 gap-1 rounded-lg bg-stone-200 p-1 text-sm dark:bg-stone-800">
+          {monedas.map((m) => (
+            <Link
+              key={m.id}
+              href={`/cuentas/${m.id}`}
+              className={`rounded-md px-3 py-1.5 text-center ${m.id === id ? "bg-white font-semibold shadow-sm dark:bg-stone-900" : "text-stone-600 dark:text-stone-400"}`}
+            >
+              {m.moneda === "USD" ? "Dólares" : "Quetzales"} · {dinero(-num(m.saldo), m.moneda)}
+            </Link>
+          ))}
+        </nav>
+      )}
+
       <section className="mb-4 rounded-lg bg-white p-4 shadow-sm dark:bg-stone-900">
         <h2 className="mb-2 text-sm font-semibold">Cuadrar con el banco</h2>
         <form action={cuadrarCuenta} className="flex flex-wrap gap-2">
           <input type="hidden" name="id" value={id} />
-          <input name="saldo_real" inputMode="decimal" required placeholder={tarjeta ? "Deuda según el banco" : "Saldo según el banco"} className={`flex-1 ${campo}`} />
+          <input name="saldo_real" inputMode="decimal" required placeholder={tarjeta ? `Deuda en ${c.moneda === "USD" ? "dólares" : "quetzales"} según el banco` : "Saldo según el banco"} className={`flex-1 ${campo}`} />
           <button className={boton}>Cuadrar</button>
         </form>
         <p className="mt-1 text-xs text-stone-500">Si no coincide, se registra un ajuste por la diferencia.</p>
@@ -78,11 +97,13 @@ export default async function CuentaPage({ params }: { params: Promise<{ id: str
           <button className={boton}>Registrar</button>
         </form>
         <p className="mt-1 text-xs text-stone-500">
-          Los pagos que marcas en la quincena se registran solos{tarjeta ? "; para pagar esta tarjeta desde otra cuenta, transfiere desde esa cuenta" : ""}.
+          Los pagos que marcas en la quincena se registran solos
+          {tarjeta ? "; para pagar esta tarjeta desde otra cuenta, transfiere desde esa cuenta" : ""}
+          {tarjeta && c.moneda === "USD" ? " escribiendo los quetzales que salen y los dólares que se abonan" : ""}.
         </p>
       </section>
 
-      {tarjeta && (
+      {tarjeta && c.moneda === "GTQ" && (
         <section className="mb-4 rounded-lg bg-white p-4 shadow-sm dark:bg-stone-900">
           <h2 className="mb-2 text-sm font-semibold">Pago desde la quincena</h2>
           <form action={vincularConcepto} className="flex flex-wrap gap-2">
@@ -130,17 +151,26 @@ export default async function CuentaPage({ params }: { params: Promise<{ id: str
         <h2 className="mb-2 text-sm font-semibold">Configurar</h2>
         <form action={configurarCuenta} className="grid grid-cols-2 gap-2">
           <input type="hidden" name="id" value={id} />
-          <label className="text-xs text-stone-500">Nombre<input name="nombre" defaultValue={c.nombre} className={`mt-1 w-full ${campo}`} /></label>
-          <label className="text-xs text-stone-500">Banco<input name="banco" defaultValue={c.banco ?? ""} className={`mt-1 w-full ${campo}`} /></label>
+          {parte ? (
+            <>
+              <input type="hidden" name="banco" value={c.banco ?? ""} />
+              {c.activo && <input type="hidden" name="activo" value="on" />}
+            </>
+          ) : (
+            <>
+              <label className="text-xs text-stone-500">Nombre<input name="nombre" defaultValue={c.nombre} className={`mt-1 w-full ${campo}`} /></label>
+              <label className="text-xs text-stone-500">Banco<input name="banco" defaultValue={c.banco ?? ""} className={`mt-1 w-full ${campo}`} /></label>
+            </>
+          )}
           <label className="text-xs text-stone-500">
             {tarjeta ? "Deuda inicial" : "Saldo inicial"}
             <input name="saldo_inicial" inputMode="decimal" defaultValue={Math.abs(num(c.saldo_inicial)).toFixed(2)} className={`mt-1 w-full ${campo}`} />
           </label>
           <label className="text-xs text-stone-500">A la fecha<input name="fecha_saldo" type="date" defaultValue={fechaSaldo} className={`mt-1 w-full ${campo}`} /></label>
-          <label className="col-span-2 flex items-center gap-2 text-sm"><input type="checkbox" name="activo" defaultChecked={c.activo} /> Cuenta activa</label>
+          {!parte && <label className="col-span-2 flex items-center gap-2 text-sm"><input type="checkbox" name="activo" defaultChecked={c.activo} /> Cuenta activa</label>}
           <button className={`col-span-2 ${boton}`}>Guardar</button>
         </form>
-        <p className="mt-1 text-xs text-stone-500">El saldo de la app es este saldo inicial más los movimientos desde esa fecha.</p>
+        <p className="mt-1 text-xs text-stone-500">El saldo de la app es este saldo inicial más los movimientos desde esa fecha.{parte ? " El nombre y el banco se cambian en la parte en quetzales." : ""}</p>
       </section>
     </>
   );
