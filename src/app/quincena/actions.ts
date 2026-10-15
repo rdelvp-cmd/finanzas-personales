@@ -21,12 +21,8 @@ export async function guardarMovimiento(form: FormData) {
   const real = monto(form.get("monto_real"));
   await sql.transaction([
     sql`update movimientos set monto_real = ${real} where id = ${id}`,
-    // Si estaba provisionado, el aporte a la provisión sigue al monto real
-    sql`
-      update fondo_movimientos fm
-      set monto = coalesce(m.monto_real, m.monto_plan)
-      from movimientos m
-      where m.id = ${id} and fm.movimiento_id = m.id and m.provisionado and fm.monto > 0`,
+    // Ajusta la provisión y los saldos de las cuentas al monto real
+    sql`select sincronizar_movimiento(${id})`,
   ]);
   revalidatePath("/", "layout");
 }
@@ -58,6 +54,8 @@ export async function cambiarEstadoPago(id: number, estado: EstadoPago, usarProv
       join v_provisiones p on p.concepto_id = m.concepto_id
       cross join fondos f
       where m.id = ${id} and f.nombre = 'Provisiones' and p.saldo > 0 and ${pagado} and ${usarProvision}`,
+    // Refleja el pago o la provisión en los saldos de las cuentas
+    sql`select sincronizar_movimiento(${id})`,
   ]);
   revalidatePath("/", "layout");
 }

@@ -79,15 +79,13 @@ create table movimientos (
   monto_plan       numeric(12,2) not null default 0,
   monto_real       numeric(12,2),
   pagado           boolean not null default false,
-  provisionado     boolean not null default false,   -- apartado en la cuenta de ahorro
   fecha_pago       date,
   cuenta_id        int references cuentas(id),
   pagador_id       int references personas(id),
   fondo_id         int,                     -- si es aporte o retiro de un fondo
   deuda_id         int,                     -- si es pago a una deuda
   nota             text,
-  creado_en        timestamptz not null default now(),
-  constraint pagado_o_provisionado check (not (pagado and provisionado))
+  creado_en        timestamptz not null default now()
 );
 create index on movimientos (periodo_id);
 create index on movimientos (concepto_id);
@@ -127,17 +125,6 @@ create table deudas (
 alter table movimientos
   add foreign key (fondo_id) references fondos(id),
   add foreign key (deuda_id) references deudas(id);
-
-insert into fondos (nombre, tipo) values ('Provisiones', 'provision');
-
--- Saldo apartado por concepto: aportes (+) al provisionar, retiros (-) al pagar usando la provisión
-create view v_provisiones as
-select m.concepto_id, c.nombre as concepto, sum(fm.monto) as saldo, max(fm.fecha) as ultima_fecha
-from fondo_movimientos fm
-join fondos f on f.id = fm.fondo_id and f.nombre = 'Provisiones'
-join movimientos m on m.id = fm.movimiento_id
-join conceptos c on c.id = m.concepto_id
-group by m.concepto_id, c.nombre;
 
 -- Cuchubal
 create table cuchubales (
