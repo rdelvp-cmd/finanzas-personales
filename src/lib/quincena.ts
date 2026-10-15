@@ -38,3 +38,8 @@ export function parse(anio: string, mes: string, q: string): Quincena | null {
 
 export const quetzales = (v: number) =>
   `${v < 0 ? "-" : ""}Q${Math.abs(v).toLocaleString("es-GT", { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`;
+
+export const dinero = (v: number, moneda: string) =>
+  moneda === "USD"
+    ? `${v < 0 ? "-" : ""}US$${Math.abs(v).toLocaleString("es-GT", { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`
+    : quetzales(v);

@@ -11,10 +11,12 @@ export default function RootLayout({ children }: { children: React.ReactNode }) 
     <html lang="es">
       <body className="min-h-screen">
         <nav className="sticky top-0 z-10 border-b border-stone-200 bg-white/90 backdrop-blur dark:border-stone-800 dark:bg-stone-900/90">
-          <div className="mx-auto flex max-w-3xl gap-4 px-4 py-3 text-sm font-medium">
+          <div className="mx-auto flex max-w-3xl gap-4 overflow-x-auto px-4 py-3 text-sm font-medium whitespace-nowrap">
             <Link href="/">Quincena</Link>
+            <Link href="/cuentas">Cuentas</Link>
+            <Link href="/provisiones">Provisiones</Link>
             <Link href="/plantillas">Plantillas</Link>
-            <Link href={`/resumen/${anio}`}>Resumen {anio}</Link>
+            <Link href={`/resumen/${anio}`}>Resumen</Link>
           </div>
         </nav>
         <main className="mx-auto max-w-3xl px-4 py-6">{children}</main>

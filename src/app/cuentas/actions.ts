@@ -1,0 +1,105 @@
+"use server";
+
+import { revalidatePath } from "next/cache";
+import { redirect } from "next/navigation";
+import { sql } from "@/lib/db";
+
+const monto = (v: FormDataEntryValue | null) => {
+  const n = Number(String(v ?? "").replace(/[Q$,\s]/g, ""));
+  if (!Number.isFinite(n)) throw new Error("Monto inválido");
+  return n;
+};
+const texto = (v: FormDataEntryValue | null) => String(v ?? "").trim() || null;
+const fecha = (v: FormDataEntryValue | null) => texto(v) ?? new Date().toISOString().slice(0, 10);
+const TIPOS = ["banco", "ahorro", "tarjeta", "efectivo", "inversion"];
+
+export async function crearCuenta(form: FormData) {
+  const tipo = String(form.get("tipo"));
+  const moneda = String(form.get("moneda")) === "USD" ? "USD" : "GTQ";
+  if (!TIPOS.includes(tipo)) throw new Error("Tipo inválido");
+  const nombre = texto(form.get("nombre"));
+  if (!nombre) throw new Error("Falta el nombre");
+  const [c] = await sql`
+    insert into cuentas (nombre, banco, tipo, moneda, orden)
+    values (${nombre}, ${texto(form.get("banco"))}, ${tipo}, ${moneda}, (select coalesce(max(orden), 0) + 1 from cuentas))
+    returning id`;
+  revalidatePath("/cuentas");
+  redirect(`/cuentas/${c.id}`);
+}
+
+// Saldo inicial: lo que dice el banco en una fecha. Para tarjetas se escribe la deuda en positivo.
+export async function configurarCuenta(form: FormData) {
+  const id = Number(form.get("id"));
+  const [c] = await sql`select tipo from cuentas where id = ${id}`;
+  const saldo = monto(form.get("saldo_inicial"));
+  const valor = c.tipo === "tarjeta" ? -Math.abs(saldo) : saldo;
+  await sql`
+    update cuentas
+    set nombre = coalesce(${texto(form.get("nombre"))}, nombre),
+        banco = ${texto(form.get("banco"))},
+        saldo_inicial = ${valor},
+        fecha_saldo = ${fecha(form.get("fecha_saldo"))},
+        activo = ${form.get("activo") === "on"}
+    where id = ${id}`;
+  revalidatePath("/cuentas", "layout");
+}
+
+// Cuadrar: registra un ajuste por la diferencia entre el saldo del banco y el de la app
+export async function cuadrarCuenta(form: FormData) {
+  const id = Number(form.get("id"));
+  const [c] = await sql`select tipo, saldo from v_saldos_cuentas where id = ${id}`;
+  const real = monto(form.get("saldo_real"));
+  const objetivo = c.tipo === "tarjeta" ? -Math.abs(real) : real;
+  const diferencia = Math.round((objetivo - Number(c.saldo)) * 100) / 100;
+  if (diferencia !== 0) {
+    await sql`
+      insert into transacciones (cuenta_id, fecha, monto, tipo, nota)
+      values (${id}, current_date, ${diferencia}, 'ajuste', 'Cuadre con el banco')`;
+  }
+  revalidatePath("/cuentas", "layout");
+}
+
+export async function registrarTransaccion(form: FormData) {
+  const id = Number(form.get("id"));
+  const clase = String(form.get("clase"));
+  const valor = Math.abs(monto(form.get("monto")));
+  const dia = fecha(form.get("fecha"));
+  const nota = texto(form.get("nota"));
+
+  if (clase === "ingreso" || clase === "gasto") {
+    await sql`
+      insert into transacciones (cuenta_id, fecha, monto, tipo, nota)
+      values (${id}, ${dia}, ${clase === "ingreso" ? valor : -valor}, ${clase}, ${nota})`;
+  } else if (clase === "transferencia") {
+    const destino = Number(form.get("destino_id"));
+    if (!destino || destino === id) throw new Error("Elige la cuenta destino");
+    // Entre monedas distintas se escribe cuánto llegó a la otra cuenta
+    const recibido = texto(form.get("monto_destino")) ? Math.abs(monto(form.get("monto_destino"))) : valor;
+    await sql`
+      with g as (select gen_random_uuid() as grupo)
+      insert into transacciones (cuenta_id, fecha, monto, tipo, grupo, nota)
+      select ${id}, ${dia}::date, ${-valor}::numeric, 'transferencia', g.grupo, ${nota} from g
+      union all
+      select ${destino}, ${dia}::date, ${recibido}::numeric, 'transferencia', g.grupo, ${nota} from g`;
+  } else {
+    throw new Error("Tipo inválido");
+  }
+  revalidatePath("/cuentas", "layout");
+}
+
+// Solo las transacciones manuales; las de la quincena se cambian desde la quincena
+export async function eliminarTransaccion(id: number) {
+  await sql`
+    delete from transacciones
+    where movimiento_id is null
+      and (id = ${id} or grupo = (select grupo from transacciones where id = ${id} and grupo is not null))`;
+  revalidatePath("/cuentas", "layout");
+}
+
+export async function vincularConcepto(form: FormData) {
+  const cuentaId = Number(form.get("id"));
+  const conceptoId = Number(form.get("concepto_id"));
+  await sql`update conceptos set cuenta_destino_id = null where cuenta_destino_id = ${cuentaId}`;
+  if (conceptoId) await sql`update conceptos set cuenta_destino_id = ${cuentaId} where id = ${conceptoId}`;
+  revalidatePath("/cuentas", "layout");
+}

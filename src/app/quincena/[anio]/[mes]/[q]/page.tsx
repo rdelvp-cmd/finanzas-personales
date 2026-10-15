@@ -2,7 +2,7 @@ import Link from "next/link";
 import { notFound } from "next/navigation";
 import { num, sql } from "@/lib/db";
 import { anterior, etiqueta, parse, quetzales, ruta, siguiente } from "@/lib/quincena";
-import { agregarMovimiento, cambiarEstado, generar } from "../../../actions";
+import { agregarMovimiento, cambiarEstado, generar, guardarSaldoInicial } from "../../../actions";
 import { Fila, type Movimiento } from "../../../Fila";
 
 export const dynamic = "force-dynamic";
@@ -42,15 +42,17 @@ export default async function QuincenaPage({ params }: { params: Params }) {
   const periodoId = Number(periodo.periodo_id);
   const cerrada = periodo.estado === "cerrada";
   const filas = await sql`
-    select m.id, c.nombre as concepto, cat.nombre as categoria, m.tipo, m.monto_plan, m.monto_real, m.pagado, m.nota
+    select m.id, m.concepto_id, c.nombre as concepto, cat.nombre as categoria, m.tipo, m.monto_plan, m.monto_real, m.pagado, m.provisionado, m.nota
     from movimientos m
     join conceptos c on c.id = m.concepto_id
     join categorias cat on cat.id = c.categoria_id
     where m.periodo_id = ${periodoId}
     order by (m.tipo = 'ingreso') desc, cat.nombre, m.monto_plan desc`;
   const conceptos = await sql`select id, nombre from conceptos order by nombre`;
+  const provisiones = await sql`select concepto_id, saldo from v_provisiones where saldo > 0`;
+  const provisionDe = new Map(provisiones.map((p) => [Number(p.concepto_id), num(p.saldo)]));
 
-  const grupos = new Map<string, Movimiento[]>();
+  const grupos = new Map<string, (Movimiento & { provision: number })[]>();
   for (const f of filas) {
     const m: Movimiento = {
       id: Number(f.id),
@@ -59,17 +61,19 @@ export default async function QuincenaPage({ params }: { params: Params }) {
       monto_plan: num(f.monto_plan),
       monto_real: f.monto_real == null ? null : num(f.monto_real),
       pagado: f.pagado,
+      provisionado: f.provisionado,
       nota: f.nota,
     };
     const g = f.tipo === "ingreso" ? "Ingresos" : f.categoria;
-    grupos.set(g, [...(grupos.get(g) ?? []), m]);
+    grupos.set(g, [...(grupos.get(g) ?? []), { ...m, provision: (provisionDe.get(Number(f.concepto_id)) ?? 0) - (m.provisionado ? (m.monto_real ?? m.monto_plan) : 0) }]);
   }
 
   const ingresos = num(periodo.ingresos);
   const egresos = num(periodo.egresos);
   const saldoInicial = num(periodo.saldo_inicial);
   const saldoFinal = num(periodo.saldo_final);
-  const pendientes = filas.filter((f) => f.tipo !== "ingreso" && !f.pagado);
+  const pendientes = filas.filter((f) => f.tipo !== "ingreso" && !f.pagado && !f.provisionado);
+  const provisionado = filas.filter((f) => f.provisionado).reduce((s, f) => s + num(f.monto_real ?? f.monto_plan), 0);
   const porPagar = pendientes.reduce((s, f) => s + num(f.monto_real ?? f.monto_plan), 0);
 
   return (
@@ -77,7 +81,23 @@ export default async function QuincenaPage({ params }: { params: Params }) {
       {nav}
 
       <section className="mb-6 grid grid-cols-2 gap-3 sm:grid-cols-4">
-        <Dato titulo="Saldo inicial" valor={saldoInicial} />
+        {cerrada ? (
+          <Dato titulo="Saldo inicial" valor={saldoInicial} />
+        ) : (
+          <form action={guardarSaldoInicial} className="rounded-lg bg-white p-3 shadow-sm dark:bg-stone-900">
+            <input type="hidden" name="periodo_id" value={periodoId} />
+            <label htmlFor="saldo_inicial" className="text-xs text-stone-500">Saldo inicial</label>
+            <input
+              id="saldo_inicial"
+              name="saldo_inicial"
+              inputMode="decimal"
+              defaultValue={saldoInicial.toFixed(2)}
+              key={saldoInicial}
+              className="w-full rounded border border-transparent bg-transparent text-lg font-semibold tabular-nums hover:border-stone-300 focus:border-stone-400 dark:hover:border-stone-700"
+            />
+            <p className="text-[10px] text-stone-400">Escribe y presiona Enter</p>
+          </form>
+        )}
         <Dato titulo="Ingresos" valor={ingresos} />
         <Dato titulo="Egresos" valor={egresos} />
         <Dato titulo="Disponible" valor={saldoFinal} fuerte />
@@ -87,6 +107,7 @@ export default async function QuincenaPage({ params }: { params: Params }) {
         {pendientes.length === 0
           ? "Todo pagado en esta quincena."
           : `Faltan ${pendientes.length} pagos por ${quetzales(porPagar)}.`}{" "}
+        {provisionado > 0 && `Provisionaste ${quetzales(provisionado)} a tu ahorro.`}{" "}
         {cerrada && "Quincena cerrada."}
       </p>
 
@@ -97,7 +118,7 @@ export default async function QuincenaPage({ params }: { params: Params }) {
             <span className="tabular-nums">{quetzales(movs.reduce((s, m) => s + (m.monto_real ?? m.monto_plan), 0))}</span>
           </h2>
           <ul className="divide-y divide-stone-100 dark:divide-stone-800">
-            {movs.map((m) => <Fila key={m.id} m={m} cerrada={cerrada} />)}
+            {movs.map((m) => <Fila key={m.id} m={m} cerrada={cerrada} provision={m.provision} />)}
           </ul>
         </section>
       ))}
