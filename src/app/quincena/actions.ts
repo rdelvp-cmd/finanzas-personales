@@ -19,24 +19,47 @@ export async function generar(anio: number, mes: number, q: number) {
 export async function guardarMovimiento(form: FormData) {
   const id = Number(form.get("id"));
   const real = monto(form.get("monto_real"));
-  const pagado = form.get("pagado") === "on";
-  await sql`
-    update movimientos
-    set monto_real = ${real},
-        pagado = ${pagado},
-        fecha_pago = case when ${pagado} then coalesce(fecha_pago, current_date) else null end
-    where id = ${id}`;
-  revalidatePath("/quincena", "layout");
+  await sql.transaction([
+    sql`update movimientos set monto_real = ${real} where id = ${id}`,
+    // Si estaba provisionado, el aporte a la provisión sigue al monto real
+    sql`
+      update fondo_movimientos fm
+      set monto = coalesce(m.monto_real, m.monto_plan)
+      from movimientos m
+      where m.id = ${id} and fm.movimiento_id = m.id and m.provisionado and fm.monto > 0`,
+  ]);
+  revalidatePath("/", "layout");
 }
 
-export async function alternarPagado(id: number, pagado: boolean) {
-  await sql`
-    update movimientos
-    set pagado = ${pagado},
-        monto_real = case when ${pagado} then coalesce(monto_real, monto_plan) else monto_real end,
-        fecha_pago = case when ${pagado} then coalesce(fecha_pago, current_date) else null end
-    where id = ${id}`;
-  revalidatePath("/quincena", "layout");
+export type EstadoPago = "pendiente" | "pagado" | "provisionado";
+
+export async function cambiarEstadoPago(id: number, estado: EstadoPago, usarProvision = false) {
+  const pagado = estado === "pagado";
+  const provisionado = estado === "provisionado";
+  await sql.transaction([
+    // Se rehacen los aportes o retiros de provisión ligados a esta fila
+    sql`delete from fondo_movimientos where movimiento_id = ${id}`,
+    sql`
+      update movimientos
+      set pagado = ${pagado},
+          provisionado = ${provisionado},
+          monto_real = case when ${estado} <> 'pendiente' then coalesce(monto_real, monto_plan) else monto_real end,
+          fecha_pago = case when ${estado} <> 'pendiente' then coalesce(fecha_pago, current_date) else null end
+      where id = ${id}`,
+    sql`
+      insert into fondo_movimientos (fondo_id, fecha, monto, origen, movimiento_id)
+      select f.id, current_date, coalesce(m.monto_real, m.monto_plan), 'provision', m.id
+      from movimientos m, fondos f
+      where m.id = ${id} and f.nombre = 'Provisiones' and ${provisionado}`,
+    sql`
+      insert into fondo_movimientos (fondo_id, fecha, monto, origen, movimiento_id, nota)
+      select f.id, current_date, -p.saldo, 'pago', m.id, 'Pago usando lo provisionado'
+      from movimientos m
+      join v_provisiones p on p.concepto_id = m.concepto_id
+      cross join fondos f
+      where m.id = ${id} and f.nombre = 'Provisiones' and p.saldo > 0 and ${pagado} and ${usarProvision}`,
+  ]);
+  revalidatePath("/", "layout");
 }
 
 export async function agregarMovimiento(form: FormData) {
@@ -53,7 +76,10 @@ export async function agregarMovimiento(form: FormData) {
 }
 
 export async function eliminarMovimiento(id: number) {
-  await sql`delete from movimientos where id = ${id}`;
+  await sql.transaction([
+    sql`delete from fondo_movimientos where movimiento_id = ${id}`,
+    sql`delete from movimientos where id = ${id}`,
+  ]);
   revalidatePath("/quincena", "layout");
 }
 
@@ -63,5 +89,23 @@ export async function cambiarEstado(periodoId: number, cerrar: boolean) {
     set estado = ${cerrar ? "cerrada" : "abierta"}::estado_periodo,
         cerrado_en = ${cerrar ? new Date().toISOString() : null}
     where id = ${periodoId}`;
+  if (cerrar) {
+    // Si la quincena siguiente ya existe y sigue abierta, arranca con el saldo real de esta
+    await sql`
+      update periodos sig
+      set saldo_inicial = r.saldo_final
+      from v_resumen_quincena r, periodos act
+      where r.periodo_id = ${periodoId}
+        and act.id = ${periodoId}
+        and sig.estado = 'abierta'
+        and sig.id = (select id from periodos where fecha > act.fecha order by fecha limit 1)`;
+  }
   revalidatePath("/", "layout");
+}
+
+export async function guardarSaldoInicial(form: FormData) {
+  const periodoId = Number(form.get("periodo_id"));
+  const saldo = monto(form.get("saldo_inicial")) ?? 0;
+  await sql`update periodos set saldo_inicial = ${saldo} where id = ${periodoId} and estado = 'abierta'`;
+  revalidatePath("/quincena", "layout");
 }

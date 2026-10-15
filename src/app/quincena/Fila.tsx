@@ -1,7 +1,7 @@
 "use client";
 
 import { useTransition } from "react";
-import { alternarPagado, eliminarMovimiento, guardarMovimiento } from "./actions";
+import { cambiarEstadoPago, eliminarMovimiento, guardarMovimiento, type EstadoPago } from "./actions";
 import { quetzales } from "@/lib/quincena";
 
 export type Movimiento = {
@@ -11,34 +11,58 @@ export type Movimiento = {
   monto_plan: number;
   monto_real: number | null;
   pagado: boolean;
+  provisionado: boolean;
   nota: string | null;
 };
 
-export function Fila({ m, cerrada }: { m: Movimiento; cerrada: boolean }) {
+const ESTILO: Record<EstadoPago, string> = {
+  pendiente: "border-stone-300 text-stone-600 dark:border-stone-700 dark:text-stone-300",
+  pagado: "border-emerald-600 bg-emerald-50 text-emerald-800 dark:bg-emerald-950 dark:text-emerald-300",
+  provisionado: "border-sky-600 bg-sky-50 text-sky-800 dark:bg-sky-950 dark:text-sky-300",
+};
+
+// provision = lo apartado para este concepto en otras quincenas, disponible para usar al pagar
+export function Fila({ m, cerrada, provision }: { m: Movimiento; cerrada: boolean; provision: number }) {
   const [pendiente, start] = useTransition();
+  const estado: EstadoPago = m.pagado ? "pagado" : m.provisionado ? "provisionado" : "pendiente";
+  const ingreso = m.tipo === "ingreso";
   const diferencia = m.monto_real != null && m.monto_real !== m.monto_plan;
 
+  function cambiar(nuevo: EstadoPago) {
+    let usar = false;
+    if (nuevo === "pagado" && provision > 0) {
+      usar = confirm(`Tienes ${quetzales(provision)} provisionado para ${m.concepto}. ¿Lo usas para este pago?`);
+    }
+    start(() => cambiarEstadoPago(m.id, nuevo, usar));
+  }
+
   return (
-    <li className={`flex items-center gap-3 py-2 ${pendiente ? "opacity-50" : ""}`}>
-      <input
-        type="checkbox"
-        aria-label={`Marcar ${m.concepto} como ${m.tipo === "ingreso" ? "recibido" : "pagado"}`}
-        className="size-5 accent-emerald-600"
-        checked={m.pagado}
+    <li className={`flex flex-wrap items-center gap-x-3 gap-y-1 py-2 ${pendiente ? "opacity-50" : ""}`}>
+      <select
+        aria-label={`Estado de ${m.concepto}`}
+        value={estado}
         disabled={cerrada || pendiente}
-        onChange={(e) => start(() => alternarPagado(m.id, e.target.checked))}
-      />
+        onChange={(e) => cambiar(e.target.value as EstadoPago)}
+        className={`w-[7.5rem] rounded border px-1 py-1 text-xs font-medium ${ESTILO[estado]}`}
+      >
+        <option value="pendiente">Pendiente</option>
+        <option value="pagado">{ingreso ? "Recibido" : "Pagado"}</option>
+        {!ingreso && <option value="provisionado">Provisionado</option>}
+      </select>
       <div className="min-w-0 flex-1">
-        <p className={`truncate ${m.pagado ? "text-stone-500 line-through decoration-stone-400" : ""}`}>{m.concepto}</p>
+        <p className={`truncate ${estado !== "pendiente" ? "text-stone-500" : ""}`}>{m.concepto}</p>
+        {provision > 0 && estado === "pendiente" && (
+          <p className="text-xs text-sky-700 dark:text-sky-400">{quetzales(provision)} provisionado</p>
+        )}
         {m.nota && m.nota !== "Importado de RV 2026" && <p className="truncate text-xs text-stone-500">{m.nota}</p>}
       </div>
       <form action={(f) => start(() => guardarMovimiento(f))} className="flex items-center gap-2">
         <input type="hidden" name="id" value={m.id} />
-        {m.pagado && <input type="hidden" name="pagado" value="on" />}
         <span className="hidden text-right text-xs text-stone-500 sm:inline">plan {quetzales(m.monto_plan)}</span>
         <input
           name="monto_real"
           inputMode="decimal"
+          aria-label={`Monto real de ${m.concepto}`}
           defaultValue={m.monto_real ?? ""}
           placeholder={m.monto_plan.toFixed(2)}
           disabled={cerrada}
