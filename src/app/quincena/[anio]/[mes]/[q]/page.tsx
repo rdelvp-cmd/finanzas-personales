@@ -3,6 +3,7 @@ import { notFound } from "next/navigation";
 import { num, sql } from "@/lib/db";
 import { anterior, etiqueta, parse, quetzales, ruta, siguiente } from "@/lib/quincena";
 import { agregarMovimiento, cambiarEstado, generar, guardarSaldoInicial } from "../../../actions";
+import BotonPdf from "./BotonPdf";
 import { Fila, type Movimiento } from "../../../Fila";
 
 export const dynamic = "force-dynamic";
@@ -143,10 +144,7 @@ export default async function QuincenaPage({ params }: { params: Params }) {
       )}
 
       <div className="flex flex-wrap items-center justify-between gap-2">
-        {/* se abre en otra pestaña para que en el teléfono se pueda compartir y volver */}
-        <a href={`${ruta(qn)}/pdf`} target="_blank" rel="noopener" className="rounded bg-stone-800 px-3 py-1 text-sm text-white dark:bg-stone-200 dark:text-stone-900">
-          Descargar PDF
-        </a>
+        <BotonPdf href={`${ruta(qn)}/pdf`} nombre={`quincena-${qn.anio}-${String(qn.mes).padStart(2, "0")}-${qn.q === 1 ? "15" : "fin"}.pdf`} />
         <form action={cambiarEstado.bind(null, periodoId, !cerrada)}>
           <button className="text-sm text-stone-600 underline dark:text-stone-400">
             {cerrada ? "Reabrir quincena" : "Cerrar quincena (su saldo pasa a la siguiente)"}

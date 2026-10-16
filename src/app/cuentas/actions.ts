@@ -3,6 +3,7 @@
 import { revalidatePath } from "next/cache";
 import { redirect } from "next/navigation";
 import { sql } from "@/lib/db";
+import { hoyGT } from "@/lib/quincena";
 
 const monto = (v: FormDataEntryValue | null) => {
   const n = Number(String(v ?? "").replace(/[Q$,\s]/g, ""));
@@ -10,7 +11,7 @@ const monto = (v: FormDataEntryValue | null) => {
   return n;
 };
 const texto = (v: FormDataEntryValue | null) => String(v ?? "").trim() || null;
-const fecha = (v: FormDataEntryValue | null) => texto(v) ?? new Date().toISOString().slice(0, 10);
+const fecha = (v: FormDataEntryValue | null) => texto(v) ?? hoyGT();
 const TIPOS = ["banco", "ahorro", "tarjeta", "efectivo", "inversion"];
 
 export async function crearCuenta(form: FormData) {
@@ -66,7 +67,7 @@ export async function cuadrarCuenta(form: FormData) {
   if (diferencia !== 0) {
     await sql`
       insert into transacciones (cuenta_id, fecha, monto, tipo, nota)
-      values (${id}, current_date, ${diferencia}, 'ajuste', 'Cuadre con el banco')`;
+      values (${id}, ${hoyGT()}::date, ${diferencia}, 'ajuste', 'Cuadre con el banco')`;
   }
   revalidatePath("/cuentas", "layout");
 }

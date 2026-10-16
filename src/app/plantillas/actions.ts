@@ -2,6 +2,7 @@
 
 import { revalidatePath } from "next/cache";
 import { sql } from "@/lib/db";
+import { hoyGT } from "@/lib/quincena";
 
 const FRECUENCIAS = ["quincenal", "mensual", "bimestral", "trimestral", "semestral", "anual", "unica"];
 const QUINCENAS = ["q15", "fin_mes", "ambas"];
@@ -25,7 +26,7 @@ export async function crearPlantilla(form: FormData) {
   const monto = Number(String(form.get("monto")).replace(/[Q,\s]/g, ""));
   const frecuencia = String(form.get("frecuencia"));
   const quincena = String(form.get("quincena"));
-  const desde = String(form.get("vigente_desde") || new Date().toISOString().slice(0, 10));
+  const desde = String(form.get("vigente_desde") || hoyGT());
   if (!Number.isFinite(monto) || !FRECUENCIAS.includes(frecuencia) || !QUINCENAS.includes(quincena)) throw new Error("Datos inválidos");
   await sql`
     insert into plantillas (concepto_id, tipo, monto, frecuencia, quincena, meses, vigente_desde)
