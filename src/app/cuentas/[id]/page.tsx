@@ -80,7 +80,14 @@ export default async function CuentaPage({ params }: { params: Promise<{ id: str
       <section className="mb-4 rounded-lg bg-white p-4 shadow-sm dark:bg-stone-900">
         <h2 className="mb-2 text-sm font-semibold">Registrar movimiento</h2>
         <form action={registrarTransaccion} className="grid grid-cols-2 gap-2 sm:grid-cols-4">
-          <input type="hidden" name="id" value={id} />
+          {monedas.length > 1 ? (
+            // En tarjetas se elige la moneda del cobro; cada moneda es su propia cuenta
+            <select name="id" defaultValue={id} aria-label="Moneda" className={campo}>
+              {monedas.map((m) => <option key={m.id} value={m.id}>{m.moneda === "USD" ? "En dólares" : "En quetzales"}</option>)}
+            </select>
+          ) : (
+            <input type="hidden" name="id" value={id} />
+          )}
           <select name="clase" defaultValue={tarjeta ? "gasto" : "ingreso"} className={campo}>
             <option value="ingreso">{tarjeta ? "Abono / pago" : "Depósito"}</option>
             <option value="gasto">{tarjeta ? "Compra" : "Retiro / gasto"}</option>

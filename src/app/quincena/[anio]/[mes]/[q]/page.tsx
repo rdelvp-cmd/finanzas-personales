@@ -143,8 +143,8 @@ export default async function QuincenaPage({ params }: { params: Params }) {
       )}
 
       <div className="flex flex-wrap items-center justify-between gap-2">
-        {/* enlace normal para que el navegador descargue el archivo */}
-        <a href={`${ruta(qn)}/pdf`} className="rounded bg-stone-800 px-3 py-1 text-sm text-white dark:bg-stone-200 dark:text-stone-900">
+        {/* se abre en otra pestaña para que en el teléfono se pueda compartir y volver */}
+        <a href={`${ruta(qn)}/pdf`} target="_blank" rel="noopener" className="rounded bg-stone-800 px-3 py-1 text-sm text-white dark:bg-stone-200 dark:text-stone-900">
           Descargar PDF
         </a>
         <form action={cambiarEstado.bind(null, periodoId, !cerrada)}>
