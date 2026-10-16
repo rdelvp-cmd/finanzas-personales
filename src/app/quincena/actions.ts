@@ -2,6 +2,7 @@
 
 import { revalidatePath } from "next/cache";
 import { sql } from "@/lib/db";
+import { hoyGT } from "@/lib/quincena";
 
 const monto = (v: FormDataEntryValue | null) => {
   const s = String(v ?? "").replace(/[Q,\s]/g, "");
@@ -32,6 +33,7 @@ export type EstadoPago = "pendiente" | "pagado" | "provisionado";
 export async function cambiarEstadoPago(id: number, estado: EstadoPago, usarProvision = false) {
   const pagado = estado === "pagado";
   const provisionado = estado === "provisionado";
+  const hoy = hoyGT();
   await sql.transaction([
     // Se rehacen los aportes o retiros de provisión ligados a esta fila
     sql`delete from fondo_movimientos where movimiento_id = ${id}`,
@@ -40,16 +42,16 @@ export async function cambiarEstadoPago(id: number, estado: EstadoPago, usarProv
       set pagado = ${pagado},
           provisionado = ${provisionado},
           monto_real = case when ${estado} <> 'pendiente' then coalesce(monto_real, monto_plan) else monto_real end,
-          fecha_pago = case when ${estado} <> 'pendiente' then coalesce(fecha_pago, current_date) else null end
+          fecha_pago = case when ${estado} <> 'pendiente' then coalesce(fecha_pago, ${hoy}::date) else null end
       where id = ${id}`,
     sql`
       insert into fondo_movimientos (fondo_id, fecha, monto, origen, movimiento_id)
-      select f.id, current_date, coalesce(m.monto_real, m.monto_plan), 'provision', m.id
+      select f.id, ${hoy}::date, coalesce(m.monto_real, m.monto_plan), 'provision', m.id
       from movimientos m, fondos f
       where m.id = ${id} and f.nombre = 'Provisiones' and ${provisionado}`,
     sql`
       insert into fondo_movimientos (fondo_id, fecha, monto, origen, movimiento_id, nota)
-      select f.id, current_date, -p.saldo, 'pago', m.id, 'Pago usando lo provisionado'
+      select f.id, ${hoy}::date, -p.saldo, 'pago', m.id, 'Pago usando lo provisionado'
       from movimientos m
       join v_provisiones p on p.concepto_id = m.concepto_id
       cross join fondos f

@@ -9,7 +9,10 @@ export function etiqueta({ anio, mes, q }: Quincena) {
   return `${dia} de ${nombreMes(mes)} ${anio}`;
 }
 
-// La fecha de hoy en Guatemala, no en la zona del servidor
+// La fecha de hoy en Guatemala (AAAA-MM-DD); el servidor y la base van en UTC
+export const hoyGT = (ahora = new Date()) => new Intl.DateTimeFormat("en-CA", { timeZone: "America/Guatemala" }).format(ahora);
+
+// La quincena de hoy en Guatemala, no en la zona del servidor
 export function actual(hoy = new Date()): Quincena {
   const partes = new Intl.DateTimeFormat("en-CA", { timeZone: "America/Guatemala", year: "numeric", month: "numeric", day: "numeric" }).formatToParts(hoy);
   const valor = (t: string) => Number(partes.find((p) => p.type === t)?.value);
