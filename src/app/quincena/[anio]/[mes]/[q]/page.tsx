@@ -1,7 +1,7 @@
 import Link from "next/link";
 import { notFound } from "next/navigation";
 import { num, sql } from "@/lib/db";
-import { anterior, etiqueta, parse, quetzales, ruta, siguiente } from "@/lib/quincena";
+import { anterior, corte, etiqueta, parse, quetzales, ruta, siguiente } from "@/lib/quincena";
 import { agregarMovimiento, cambiarEstado, generar, guardarSaldoInicial } from "../../../actions";
 import BotonPdf from "./BotonPdf";
 import { Fila, type Movimiento } from "../../../Fila";
@@ -78,8 +78,15 @@ export default async function QuincenaPage({ params }: { params: Params }) {
   const recibido = filas.filter((f) => f.tipo === "ingreso" && f.pagado).reduce((s, f) => s + num(f.monto_real ?? f.monto_plan), 0);
   const porRecibir = filas.filter((f) => f.tipo === "ingreso" && !f.pagado).reduce((s, f) => s + num(f.monto_real ?? f.monto_plan), 0);
   const pagado = filas.filter((f) => f.tipo !== "ingreso" && (f.pagado || f.provisionado)).reduce((s, f) => s + num(f.monto_real ?? f.monto_plan), 0);
-  const disponible = saldoInicial + recibido - pagado;
   const [monetaria] = await sql`select saldo from v_saldos_cuentas where rol = 'salario'`;
+  // Abonos, retiros o transferencias registrados a mano en la Monetaria durante la quincena
+  const [{ otros }] = await sql`
+    select coalesce(sum(t.monto), 0) as otros
+    from transacciones t join cuentas c on c.id = t.cuenta_id
+    where c.rol = 'salario' and t.movimiento_id is null and t.tipo <> 'ajuste'
+      and t.fecha between ${new Date(periodo.fecha).toISOString().slice(0, 10)}::date and ${corte(qn)}::date`;
+  const otrosMovimientos = num(otros);
+  const disponible = saldoInicial + recibido - pagado + otrosMovimientos;
 
   return (
     <>
@@ -105,7 +112,12 @@ export default async function QuincenaPage({ params }: { params: Params }) {
         )}
         <Dato titulo="Recibido" valor={recibido} />
         <Dato titulo="Pagado y provisionado" valor={pagado} />
-        <Dato titulo="Disponible hoy" valor={disponible} fuerte />
+        <Dato
+          titulo="Disponible hoy"
+          valor={disponible}
+          fuerte
+          nota={otrosMovimientos !== 0 ? `Incluye ${quetzales(otrosMovimientos)} de otros movimientos de la Monetaria` : undefined}
+        />
       </section>
 
       <p className="mb-4 text-sm text-stone-600 dark:text-stone-400">
@@ -114,7 +126,7 @@ export default async function QuincenaPage({ params }: { params: Params }) {
           : `Faltan ${pendientes.length} pagos por ${quetzales(porPagar)}.`}{" "}
         {provisionado > 0 && `Provisionaste ${quetzales(provisionado)} a tu ahorro.`}{" "}
         {porRecibir > 0 && `Falta recibir ${quetzales(porRecibir)}.`}{" "}
-        {(pendientes.length > 0 || porRecibir > 0) && `Al completar todo te quedarían ${quetzales(saldoFinal)}.`}{" "}
+        {(pendientes.length > 0 || porRecibir > 0) && `Al completar todo te quedarían ${quetzales(saldoFinal + otrosMovimientos)}.`}{" "}
         {monetaria && `Tu Monetaria tiene ${quetzales(num(monetaria.saldo))}.`}{" "}
         {cerrada && "Quincena cerrada."}
       </p>
@@ -155,12 +167,13 @@ export default async function QuincenaPage({ params }: { params: Params }) {
   );
 }
 
-function Dato({ titulo, valor, fuerte }: { titulo: string; valor: number; fuerte?: boolean }) {
+function Dato({ titulo, valor, fuerte, nota }: { titulo: string; valor: number; fuerte?: boolean; nota?: string }) {
   const color = fuerte ? (valor < 0 ? "text-red-600" : "text-emerald-700 dark:text-emerald-400") : "";
   return (
     <div className="rounded-lg bg-white p-3 shadow-sm dark:bg-stone-900">
       <p className="text-xs text-stone-500">{titulo}</p>
       <p className={`text-lg font-semibold tabular-nums ${color}`}>{quetzales(valor)}</p>
+      {nota && <p className="text-[10px] text-stone-400">{nota}</p>}
     </div>
   );
 }
