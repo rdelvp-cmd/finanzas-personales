@@ -22,7 +22,7 @@ export default async function CuentaPage({ params }: { params: Promise<{ id: str
   const monedas = tarjeta
     ? await sql`select id, moneda, saldo from v_saldos_cuentas where id = ${c.principal_id ?? id} or principal_id = ${c.principal_id ?? id} order by moneda`
     : [];
-  const otras = await sql`select id, nombre, moneda from cuentas where activo and id <> ${id} order by orden, id`;
+  const otras = await sql`select id, nombre, moneda, tipo from cuentas where activo and id <> ${id} order by orden, id`;
   const transacciones = await sql`
     select t.id, t.fecha, t.monto, t.tipo, t.nota, t.movimiento_id, co.nombre as concepto,
       (select cu.nombre from transacciones t2 join cuentas cu on cu.id = t2.cuenta_id
@@ -91,22 +91,22 @@ export default async function CuentaPage({ params }: { params: Promise<{ id: str
           <select name="clase" defaultValue={tarjeta ? "gasto" : "ingreso"} className={campo}>
             <option value="ingreso">{tarjeta ? "Abono / pago" : "Depósito"}</option>
             <option value="gasto">{tarjeta ? "Compra" : "Retiro / gasto"}</option>
-            <option value="transferencia">Transferir a…</option>
+            {!tarjeta && <option value="transferencia">Transferir a…</option>}
           </select>
           <input name="monto" inputMode="decimal" required placeholder="Monto" className={campo} />
           <input name="fecha" type="date" className={campo} />
           <input name="nota" placeholder="Nota" className={campo} />
           <select name="destino_id" defaultValue="" className={campo}>
-            <option value="">Cuenta destino (si transfieres)</option>
-            {otras.map((o) => <option key={o.id} value={o.id}>{o.nombre}</option>)}
+            <option value="">{tarjeta ? "Pagado desde (si es abono)" : "Cuenta destino (si transfieres)"}</option>
+            {otras.filter((o) => !tarjeta || o.tipo !== "tarjeta").map((o) => <option key={o.id} value={o.id}>{o.nombre}</option>)}
           </select>
-          <input name="monto_destino" inputMode="decimal" placeholder="Monto recibido (si es otra moneda)" className={`sm:col-span-2 ${campo}`} />
+          <input name="monto_destino" inputMode="decimal" placeholder={tarjeta ? "Monto que salió (si es otra moneda)" : "Monto recibido (si es otra moneda)"} className={`sm:col-span-2 ${campo}`} />
           <button className={boton}>Registrar</button>
         </form>
         <p className="mt-1 text-xs text-stone-500">
           Los pagos que marcas en la quincena se registran solos
-          {tarjeta ? "; para pagar esta tarjeta desde otra cuenta, transfiere desde esa cuenta" : ""}
-          {tarjeta && c.moneda === "USD" ? " escribiendo los quetzales que salen y los dólares que se abonan" : ""}.
+          {tarjeta ? "; en un abono elige de qué cuenta salió el dinero y se descuenta de allí" : ""}
+          {tarjeta ? " (si pagas dólares con quetzales, el monto es lo abonado y abajo los quetzales que salieron)" : ""}.
         </p>
       </section>
 

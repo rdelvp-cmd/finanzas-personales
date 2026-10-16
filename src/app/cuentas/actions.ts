@@ -78,7 +78,18 @@ export async function registrarTransaccion(form: FormData) {
   const dia = fecha(form.get("fecha"));
   const nota = texto(form.get("nota"));
 
-  if (clase === "ingreso" || clase === "gasto") {
+  const origen = Number(form.get("destino_id"));
+  const [cuenta] = await sql`select tipo from cuentas where id = ${id}`;
+  if (clase === "ingreso" && cuenta?.tipo === "tarjeta" && origen && origen !== id) {
+    // Abono a tarjeta: sale de la cuenta elegida (en su moneda, si es otra) y baja la deuda
+    const salio = texto(form.get("monto_destino")) ? Math.abs(monto(form.get("monto_destino"))) : valor;
+    await sql`
+      with g as (select gen_random_uuid() as grupo)
+      insert into transacciones (cuenta_id, fecha, monto, tipo, grupo, nota)
+      select ${origen}, ${dia}::date, ${-salio}::numeric, 'transferencia', g.grupo, ${nota} from g
+      union all
+      select ${id}, ${dia}::date, ${valor}::numeric, 'transferencia', g.grupo, ${nota} from g`;
+  } else if (clase === "ingreso" || clase === "gasto") {
     await sql`
       insert into transacciones (cuenta_id, fecha, monto, tipo, nota)
       values (${id}, ${dia}, ${clase === "ingreso" ? valor : -valor}, ${clase}, ${nota})`;
