@@ -86,9 +86,9 @@ export async function registrarTransaccion(form: FormData) {
     await sql`
       with g as (select gen_random_uuid() as grupo)
       insert into transacciones (cuenta_id, fecha, monto, tipo, grupo, nota)
-      select ${origen}, ${dia}::date, ${-salio}::numeric, 'transferencia', g.grupo, ${nota} from g
+      select ${origen}::int, ${dia}::date, ${-salio}::numeric, 'transferencia', g.grupo, ${nota}::text from g
       union all
-      select ${id}, ${dia}::date, ${valor}::numeric, 'transferencia', g.grupo, ${nota} from g`;
+      select ${id}::int, ${dia}::date, ${valor}::numeric, 'transferencia', g.grupo, ${nota}::text from g`;
   } else if (clase === "ingreso" || clase === "gasto") {
     await sql`
       insert into transacciones (cuenta_id, fecha, monto, tipo, nota)
@@ -101,9 +101,9 @@ export async function registrarTransaccion(form: FormData) {
     await sql`
       with g as (select gen_random_uuid() as grupo)
       insert into transacciones (cuenta_id, fecha, monto, tipo, grupo, nota)
-      select ${id}, ${dia}::date, ${-valor}::numeric, 'transferencia', g.grupo, ${nota} from g
+      select ${id}::int, ${dia}::date, ${-valor}::numeric, 'transferencia', g.grupo, ${nota}::text from g
       union all
-      select ${destino}, ${dia}::date, ${recibido}::numeric, 'transferencia', g.grupo, ${nota} from g`;
+      select ${destino}::int, ${dia}::date, ${recibido}::numeric, 'transferencia', g.grupo, ${nota}::text from g`;
   } else {
     throw new Error("Tipo inválido");
   }
