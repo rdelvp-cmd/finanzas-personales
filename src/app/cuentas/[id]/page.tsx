@@ -127,13 +127,17 @@ export default async function CuentaPage({ params }: { params: Promise<{ id: str
             {transacciones.map((t) => {
               const d = new Date(t.fecha).toISOString().slice(0, 10);
               const antes = d < fechaSaldo;
-              const texto = [t.concepto, t.contraparte && (num(t.monto) < 0 ? `a ${t.contraparte}` : `de ${t.contraparte}`), t.nota].filter(Boolean).join(" · ") || t.tipo;
+              const v = num(t.monto);
+              // En tarjetas se lee como deuda: una compra la sube (+) y un pago la baja (-)
+              const etiqueta = tarjeta ? (v < 0 ? "Compra" : "Pago") : null;
+              const texto = [etiqueta, t.concepto, t.contraparte && (v < 0 ? `a ${t.contraparte}` : `de ${t.contraparte}`), t.nota].filter(Boolean).join(" · ") || t.tipo;
+              const mostrado = tarjeta ? -v : v;
               return (
                 <li key={t.id} className={`flex items-center gap-2 py-2 ${antes ? "opacity-40" : ""}`}>
                   <span className="text-stone-500 tabular-nums">{d}</span>
                   <span className="min-w-0 flex-1 truncate">{texto}</span>
-                  <span className={`tabular-nums ${num(t.monto) < 0 ? "" : "text-emerald-700 dark:text-emerald-400"}`}>
-                    {num(t.monto) > 0 ? "+" : ""}{dinero(num(t.monto), c.moneda)}
+                  <span className={`tabular-nums ${v < 0 ? "" : "text-emerald-700 dark:text-emerald-400"}`}>
+                    {mostrado > 0 ? "+" : ""}{dinero(mostrado, c.moneda)}
                   </span>
                   {t.movimiento_id == null && (
                     <form action={eliminarTransaccion.bind(null, Number(t.id))}>
