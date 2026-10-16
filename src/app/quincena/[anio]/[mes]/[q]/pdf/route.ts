@@ -187,7 +187,7 @@ export async function GET(_req: Request, { params }: { params: Params }) {
       const pagos = lista.filter((t) => num(t.monto) > 0).reduce((s, t) => s + num(t.monto), 0);
       h.texto(`Compras: ${dinero(compras, c.moneda)}`, M + 70, { bold: true });
       h.texto(`Pagos: ${dinero(pagos, c.moneda)}`, M + 230, { bold: true });
-      h.texto(`${neto <= 0 ? "Deuda sube" : "Deuda baja"} ${dinero(Math.abs(neto), c.moneda)}`, D, { bold: true, derecha: true });
+      h.texto(`${neto <= 0 ? "La deuda subió" : "La deuda bajó"} ${dinero(Math.abs(neto), c.moneda)}`, D, { bold: true, derecha: true });
     } else {
       h.texto("Movimiento neto", M + 70, { bold: true });
       h.texto(`${neto > 0 ? "+" : ""}${dinero(neto, c.moneda)}`, D, { bold: true, derecha: true });
@@ -220,6 +220,6 @@ export async function GET(_req: Request, { params }: { params: Params }) {
   const bytes = await doc.save();
   const nombre = `quincena-${qn.anio}-${String(qn.mes).padStart(2, "0")}-${qn.q === 1 ? "15" : "fin"}.pdf`;
   return new Response(Buffer.from(bytes), {
-    headers: { "Content-Type": "application/pdf", "Content-Disposition": `attachment; filename="${nombre}"` },
+    headers: { "Content-Type": "application/pdf", "Content-Disposition": `inline; filename="${nombre}"` },
   });
 }
