@@ -29,6 +29,14 @@ export function anterior({ anio, mes, q }: Quincena): Quincena {
   return mes === 1 ? { anio: anio - 1, mes: 12, q: 2 } : { anio, mes: mes - 1, q: 2 };
 }
 
+// Hasta qué día cuenta una quincena: el día antes de la siguiente, o hoy si todavía no llega
+export function corte(qn: Quincena, hoy = hoyGT()) {
+  const sig = siguiente(qn);
+  const dia = sig.q === 1 ? 15 : new Date(Date.UTC(sig.anio, sig.mes, 0)).getUTCDate();
+  const fin = new Date(Date.UTC(sig.anio, sig.mes - 1, dia) - 86400000).toISOString().slice(0, 10);
+  return fin < hoy ? fin : hoy;
+}
+
 export const ruta = ({ anio, mes, q }: Quincena) => `/quincena/${anio}/${mes}/${q}`;
 
 export function parse(anio: string, mes: string, q: string): Quincena | null {

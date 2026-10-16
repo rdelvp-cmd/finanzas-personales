@@ -1,6 +1,6 @@
 import { PDFDocument, PDFFont, PDFPage, rgb, StandardFonts } from "pdf-lib";
 import { num, sql } from "@/lib/db";
-import { dinero, etiqueta, parse, siguiente } from "@/lib/quincena";
+import { corte as corteDe, dinero, etiqueta, hoyGT, parse } from "@/lib/quincena";
 
 export const dynamic = "force-dynamic";
 
@@ -52,12 +52,10 @@ export async function GET(_req: Request, { params }: { params: Params }) {
     order by cat.nombre, m.monto_plan desc`;
 
   // Corte de saldos: el día antes de la siguiente quincena, o hoy si todavía no llega
-  const sig = siguiente(qn);
-  const finQuincena = new Date(Date.UTC(sig.anio, sig.mes - 1, sig.q === 1 ? 15 : new Date(Date.UTC(sig.anio, sig.mes, 0)).getUTCDate()) - 86400000);
-  const hoy = new Intl.DateTimeFormat("en-CA", { timeZone: "America/Guatemala" }).format(new Date());
-  const corte = iso(finQuincena) < hoy ? iso(finQuincena) : hoy;
+  const hoy = hoyGT();
+  const corte = corteDe(qn, hoy);
   const cuentas = await sql`
-    select c.id, c.nombre, c.tipo, c.moneda, c.principal_id, c.fecha_saldo,
+    select c.id, c.nombre, c.tipo, c.moneda, c.rol, c.principal_id, c.fecha_saldo,
       c.saldo_inicial + coalesce(sum(t.monto) filter (where t.fecha >= c.fecha_saldo and t.fecha <= ${corte}::date), 0) as saldo
     from cuentas c
     left join transacciones t on t.cuenta_id = c.id
@@ -67,7 +65,7 @@ export async function GET(_req: Request, { params }: { params: Params }) {
   // Movimientos de cada cuenta desde el día de la quincena hasta el corte
   const desde = iso(new Date(periodo.fecha));
   const movimientos = await sql`
-    select t.cuenta_id, t.fecha, t.monto, t.tipo, t.nota, co.nombre as concepto,
+    select t.cuenta_id, t.fecha, t.monto, t.tipo, t.nota, t.movimiento_id, co.nombre as concepto,
       (select cu.nombre from transacciones t2 join cuentas cu on cu.id = t2.cuenta_id
        where t2.grupo = t.grupo and t2.id <> t.id limit 1) as contraparte
     from transacciones t
@@ -75,6 +73,8 @@ export async function GET(_req: Request, { params }: { params: Params }) {
     left join conceptos co on co.id = m.concepto_id
     where t.fecha between ${desde}::date and ${corte}::date
     order by t.fecha, t.id`;
+
+  const monetariaId = cuentas.find((c) => c.rol === "salario")?.id;
 
   const doc = await PDFDocument.create();
   const font = await doc.embedFont(StandardFonts.Helvetica);
@@ -91,19 +91,24 @@ export async function GET(_req: Request, { params }: { params: Params }) {
   const real = (f: Record<string, any>) => num(f.monto_real ?? f.monto_plan);
   const recibido = filas.filter((f) => f.tipo === "ingreso" && f.pagado).reduce((s, f) => s + real(f), 0);
   const pagado = filas.filter((f) => f.tipo !== "ingreso" && (f.pagado || f.provisionado)).reduce((s, f) => s + real(f), 0);
+  // Abonos, retiros o transferencias registrados a mano en la Monetaria (no en la lista de la quincena)
+  const otros = movimientos
+    .filter((t) => t.cuenta_id === monetariaId && t.movimiento_id == null && t.tipo !== "ajuste")
+    .reduce((s, t) => s + num(t.monto), 0);
   const resumen: [string, number][] = [
     ["Saldo inicial", num(periodo.saldo_inicial)],
     ["Recibido", recibido],
     ["Pagado y provisionado", pagado],
-    ["Disponible", num(periodo.saldo_inicial) + recibido - pagado],
+    ...(otros !== 0 ? [["Otros movimientos", otros] as [string, number]] : []),
+    ["Disponible", num(periodo.saldo_inicial) + recibido - pagado + otros],
   ];
-  const col = (D - M) / 4;
+  const col = (D - M) / resumen.length;
   resumen.forEach(([t], i) => h.texto(t, M + col * i, { gris: true }));
   h.baja(14);
   resumen.forEach(([, v], i) => h.texto(dinero(v, "GTQ"), M + col * i, { size: 12, bold: true }));
   if (Math.abs(num(periodo.saldo_final) - (num(periodo.saldo_inicial) + recibido - pagado)) >= 0.01) {
     h.baja(16);
-    h.texto(`Con lo pendiente por recibir y pagar, el saldo quedaría en ${dinero(num(periodo.saldo_final), "GTQ")}.`, M, { gris: true });
+    h.texto(`Con lo pendiente por recibir y pagar, el saldo quedaría en ${dinero(num(periodo.saldo_final) + otros, "GTQ")}.`, M, { gris: true });
   }
   h.baja(10);
 
