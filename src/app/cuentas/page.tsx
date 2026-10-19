@@ -14,6 +14,7 @@ export default async function CuentasPage() {
   const partesUSD = new Map(cuentas.filter((c) => c.principal_id != null).map((c) => [c.principal_id, c]));
   const totalQ = bancos.filter((c) => c.moneda === "GTQ").reduce((s, c) => s + num(c.saldo), 0);
   const totalUSD = bancos.filter((c) => c.moneda === "USD").reduce((s, c) => s + num(c.saldo), 0);
+  const totalMXN = bancos.filter((c) => c.moneda === "MXN").reduce((s, c) => s + num(c.saldo), 0);
   const deudaQ = cuentas.filter((c) => c.tipo === "tarjeta" && c.moneda === "GTQ").reduce((s, c) => s + num(c.saldo), 0);
   const deudaUSD = cuentas.filter((c) => c.tipo === "tarjeta" && c.moneda === "USD").reduce((s, c) => s + num(c.saldo), 0);
 
@@ -22,7 +23,8 @@ export default async function CuentasPage() {
       <h1 className="mb-2 text-lg font-semibold">Cuentas</h1>
       <p className="mb-6 text-sm text-stone-600 dark:text-stone-400">
         En bancos: <b>{quetzales(totalQ)}</b>
-        {totalUSD !== 0 && <> y <b>{dinero(totalUSD, "USD")}</b></>}. Deuda en tarjetas: <b className="text-red-600">{quetzales(-deudaQ)}</b>
+        {totalUSD !== 0 && <>, <b>{dinero(totalUSD, "USD")}</b></>}
+        {totalMXN !== 0 && <> y <b>{dinero(totalMXN, "MXN")}</b></>}. Deuda en tarjetas: <b className="text-red-600">{quetzales(-deudaQ)}</b>
         {deudaUSD !== 0 && <> y <b className="text-red-600">{dinero(-deudaUSD, "USD")}</b></>}.
       </p>
 
@@ -43,6 +45,7 @@ export default async function CuentasPage() {
         <select name="moneda" defaultValue="GTQ" className={campo}>
           <option value="GTQ">Quetzales</option>
           <option value="USD">Dólares</option>
+          <option value="MXN">Pesos mexicanos</option>
         </select>
         <button className="col-span-2 rounded bg-stone-800 px-3 py-1 text-white sm:col-span-3 dark:bg-stone-200 dark:text-stone-900">Crear</button>
       </form>

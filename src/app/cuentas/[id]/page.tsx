@@ -1,7 +1,7 @@
 import Link from "next/link";
 import { notFound } from "next/navigation";
 import { num, sql } from "@/lib/db";
-import { dinero } from "@/lib/quincena";
+import { dinero, nombreMoneda } from "@/lib/quincena";
 import { configurarCuenta, cuadrarCuenta, eliminarTransaccion, registrarTransaccion, vincularConcepto } from "../actions";
 
 export const dynamic = "force-dynamic";
@@ -43,7 +43,7 @@ export default async function CuentaPage({ params }: { params: Promise<{ id: str
       <div className={`mt-2 ${monedas.length > 1 ? "mb-3" : "mb-6"} flex items-end justify-between gap-2`}>
         <div>
           <h1 className="text-lg font-semibold">{parte ? c.nombre.replace(/ \(US\$\)$/, "") : c.nombre}</h1>
-          <p className="text-xs text-stone-500">{[c.banco, c.moneda === "USD" ? "dólares" : "quetzales"].filter(Boolean).join(" · ")}</p>
+          <p className="text-xs text-stone-500">{[c.banco, nombreMoneda(c.moneda)].filter(Boolean).join(" · ")}</p>
         </div>
         <div className="text-right">
           <p className="text-xs text-stone-500">{tarjeta ? "Deuda" : "Saldo"}</p>
@@ -71,7 +71,7 @@ export default async function CuentaPage({ params }: { params: Promise<{ id: str
         <h2 className="mb-2 text-sm font-semibold">Cuadrar con el banco</h2>
         <form action={cuadrarCuenta} className="flex flex-wrap gap-2">
           <input type="hidden" name="id" value={id} />
-          <input name="saldo_real" inputMode="decimal" required placeholder={tarjeta ? `Deuda en ${c.moneda === "USD" ? "dólares" : "quetzales"} según el banco` : "Saldo según el banco"} className={`flex-1 ${campo}`} />
+          <input name="saldo_real" inputMode="decimal" required placeholder={tarjeta ? `Deuda en ${nombreMoneda(c.moneda)} según el banco` : "Saldo según el banco"} className={`flex-1 ${campo}`} />
           <button className={boton}>Cuadrar</button>
         </form>
         <p className="mt-1 text-xs text-stone-500">Si no coincide, se registra un ajuste por la diferencia.</p>
