@@ -1,6 +1,6 @@
 import { PDFDocument, PDFFont, PDFPage, rgb, StandardFonts } from "pdf-lib";
 import { num, sql } from "@/lib/db";
-import { corte as corteDe, dinero, etiqueta, hoyGT, parse } from "@/lib/quincena";
+import { corte as corteDe, dinero, etiqueta, hoyGT, nombreMoneda, parse } from "@/lib/quincena";
 
 export const dynamic = "force-dynamic";
 
@@ -172,7 +172,7 @@ export async function GET(_req: Request, { params }: { params: Params }) {
     const tarjeta = c.tipo === "tarjeta";
     h.espacio(44); h.baja(18);
     h.texto(c.nombre, M, { bold: true });
-    h.texto(tarjeta ? "tarjeta de crédito" : c.moneda === "USD" ? "dólares" : "quetzales", M + bold.widthOfTextAtSize(limpio(c.nombre), 9) + 8, { gris: true });
+    h.texto(tarjeta ? "tarjeta de crédito" : nombreMoneda(c.moneda), M + bold.widthOfTextAtSize(limpio(c.nombre), 9) + 8, { gris: true });
     for (const t of lista) {
       const v = num(t.monto);
       // En tarjetas, un monto negativo es una compra (sube la deuda)

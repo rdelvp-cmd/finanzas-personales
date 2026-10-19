@@ -16,7 +16,7 @@ const TIPOS = ["banco", "ahorro", "tarjeta", "efectivo", "inversion"];
 
 export async function crearCuenta(form: FormData) {
   const tipo = String(form.get("tipo"));
-  const moneda = String(form.get("moneda")) === "USD" ? "USD" : "GTQ";
+  const moneda = ["USD", "MXN"].includes(String(form.get("moneda"))) ? String(form.get("moneda")) : "GTQ";
   if (!TIPOS.includes(tipo)) throw new Error("Tipo inválido");
   const nombre = texto(form.get("nombre"));
   if (!nombre) throw new Error("Falta el nombre");

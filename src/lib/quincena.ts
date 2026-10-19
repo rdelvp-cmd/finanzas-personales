@@ -50,7 +50,12 @@ export function parse(anio: string, mes: string, q: string): Quincena | null {
 export const quetzales = (v: number) =>
   `${v < 0 ? "-" : ""}Q${Math.abs(v).toLocaleString("es-GT", { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`;
 
+const SIMBOLOS: Record<string, string> = { USD: "US$", MXN: "MX$" };
+
 export const dinero = (v: number, moneda: string) =>
-  moneda === "USD"
-    ? `${v < 0 ? "-" : ""}US$${Math.abs(v).toLocaleString("es-GT", { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`
+  moneda in SIMBOLOS
+    ? `${v < 0 ? "-" : ""}${SIMBOLOS[moneda]}${Math.abs(v).toLocaleString("es-GT", { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`
     : quetzales(v);
+
+// "dólares", "pesos" o "quetzales"
+export const nombreMoneda = (moneda: string) => (moneda === "USD" ? "dólares" : moneda === "MXN" ? "pesos" : "quetzales");
