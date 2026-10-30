@@ -31,10 +31,16 @@ export async function guardarMovimiento(form: FormData) {
 export type EstadoPago = "pendiente" | "pagado" | "provisionado";
 
 export async function cambiarEstadoPago(id: number, estado: EstadoPago, usarProvision = false) {
+  await sql.transaction(marcar(id, estado, usarProvision));
+  revalidatePath("/", "layout");
+}
+
+// Las sentencias que marcan una fila como pendiente, pagada o provisionada
+function marcar(id: number, estado: EstadoPago, usarProvision: boolean) {
   const pagado = estado === "pagado";
   const provisionado = estado === "provisionado";
   const hoy = hoyGT();
-  await sql.transaction([
+  return [
     // Se rehacen los aportes o retiros de provisión ligados a esta fila
     sql`delete from fondo_movimientos where movimiento_id = ${id}`,
     sql`
@@ -58,21 +64,38 @@ export async function cambiarEstadoPago(id: number, estado: EstadoPago, usarProv
       where m.id = ${id} and f.nombre = 'Provisiones' and p.saldo > 0 and ${pagado} and ${usarProvision}`,
     // Refleja el pago o la provisión en los saldos de las cuentas
     sql`select sincronizar_movimiento(${id})`,
-  ]);
-  revalidatePath("/", "layout");
+  ];
 }
 
-export async function agregarMovimiento(form: FormData) {
+// Registra un pago (o ingreso) real: si el concepto venía en la plantilla de esta
+// quincena se completa esa fila; si no, se agrega una fila nueva ya pagada
+export async function registrarPago(form: FormData) {
   const periodoId = Number(form.get("periodo_id"));
-  const conceptoId = Number(form.get("concepto_id"));
-  const plan = monto(form.get("monto")) ?? 0;
-  const nota = String(form.get("nota") ?? "") || null;
-  await sql`
-    insert into movimientos (periodo_id, concepto_id, tipo, monto_plan, nota)
-    select ${periodoId}, c.id, cat.tipo, ${plan}, ${nota}
-    from conceptos c join categorias cat on cat.id = c.categoria_id
-    where c.id = ${conceptoId}`;
-  revalidatePath("/quincena", "layout");
+  const [clase, valor] = String(form.get("pago")).split(":");
+  const real = monto(form.get("monto"));
+  if (real == null) throw new Error("Falta el monto");
+  const estado = String(form.get("estado")) as EstadoPago;
+  if (estado !== "pagado" && estado !== "provisionado") throw new Error("Estado inválido");
+  const nota = String(form.get("nota") ?? "").trim() || null;
+  const usarProvision = form.get("usar_provision") === "1";
+
+  let id: number;
+  if (clase === "m") {
+    id = Number(valor);
+    await sql`
+      update movimientos set monto_real = ${real}, nota = coalesce(${nota}, nota)
+      where id = ${id} and periodo_id = ${periodoId} and not pagado and not provisionado`;
+  } else {
+    const [fila] = await sql`
+      insert into movimientos (periodo_id, concepto_id, tipo, monto_plan, monto_real, nota)
+      select ${periodoId}, c.id, cat.tipo, 0, ${real}, ${nota}
+      from conceptos c join categorias cat on cat.id = c.categoria_id
+      where c.id = ${Number(valor)}
+      returning id`;
+    id = Number(fila.id);
+  }
+  await sql.transaction(marcar(id, estado, usarProvision));
+  revalidatePath("/", "layout");
 }
 
 export async function eliminarMovimiento(id: number) {

@@ -2,9 +2,10 @@ import Link from "next/link";
 import { notFound } from "next/navigation";
 import { num, sql } from "@/lib/db";
 import { anterior, corte, etiqueta, parse, quetzales, ruta, siguiente } from "@/lib/quincena";
-import { agregarMovimiento, cambiarEstado, generar, guardarSaldoInicial } from "../../../actions";
+import { cambiarEstado, generar, guardarSaldoInicial } from "../../../actions";
 import BotonPdf from "./BotonPdf";
 import { Fila, type Movimiento } from "../../../Fila";
+import { RegistrarPago, type OpcionPago } from "../../../RegistrarPago";
 
 export const dynamic = "force-dynamic";
 
@@ -49,11 +50,22 @@ export default async function QuincenaPage({ params }: { params: Params }) {
     join categorias cat on cat.id = c.categoria_id
     where m.periodo_id = ${periodoId}
     order by (m.tipo = 'ingreso') desc, cat.nombre, m.monto_plan desc`;
-  const conceptos = await sql`select id, nombre from conceptos order by nombre`;
+  // Para conceptos fuera de esta quincena se sugiere el monto de su plantilla más reciente,
+  // o si no tiene, lo último que se pagó por él
+  const conceptos = await sql`
+    select c.id, c.nombre, cat.tipo,
+      coalesce(
+        (select t.monto from plantillas t where t.concepto_id = c.id order by t.vigente_desde desc limit 1),
+        (select coalesce(m.monto_real, m.monto_plan) from movimientos m join periodos p on p.id = m.periodo_id
+          where m.concepto_id = c.id and (m.pagado or m.provisionado) order by p.fecha desc limit 1)
+      ) as sugerido
+    from conceptos c join categorias cat on cat.id = c.categoria_id
+    order by c.nombre`;
   const provisiones = await sql`select concepto_id, saldo from v_provisiones where saldo > 0`;
   const provisionDe = new Map(provisiones.map((p) => [Number(p.concepto_id), num(p.saldo)]));
 
   const grupos = new Map<string, (Movimiento & { provision: number })[]>();
+  const porHacer: (Movimiento & { provision: number })[] = [];
   for (const f of filas) {
     const m: Movimiento = {
       id: Number(f.id),
@@ -65,9 +77,28 @@ export default async function QuincenaPage({ params }: { params: Params }) {
       provisionado: f.provisionado,
       nota: f.nota,
     };
+    const fila = { ...m, provision: (provisionDe.get(Number(f.concepto_id)) ?? 0) - (m.provisionado ? (m.monto_real ?? m.monto_plan) : 0) };
+    // La lista principal muestra solo lo que ya pagaste, provisionaste o recibiste
+    if (!m.pagado && !m.provisionado) {
+      porHacer.push(fila);
+      continue;
+    }
     const g = f.tipo === "ingreso" ? "Ingresos" : f.categoria;
-    grupos.set(g, [...(grupos.get(g) ?? []), { ...m, provision: (provisionDe.get(Number(f.concepto_id)) ?? 0) - (m.provisionado ? (m.monto_real ?? m.monto_plan) : 0) }]);
+    grupos.set(g, [...(grupos.get(g) ?? []), fila]);
   }
+  const opcionesPlantilla: OpcionPago[] = porHacer
+    .filter((m) => m.monto_plan > 0 || m.monto_real != null)
+    .map((m) => ({ valor: `m:${m.id}`, nombre: m.concepto, ingreso: m.tipo === "ingreso", sugerido: m.monto_real ?? m.monto_plan, provision: m.provision }));
+  const enPlantilla = new Set(porHacer.map((m) => m.concepto));
+  const otrosConceptos: OpcionPago[] = conceptos
+    .filter((c) => !enPlantilla.has(c.nombre))
+    .map((c) => ({
+      valor: `c:${c.id}`,
+      nombre: c.nombre,
+      ingreso: c.tipo === "ingreso",
+      sugerido: c.sugerido == null ? null : num(c.sugerido),
+      provision: provisionDe.get(Number(c.id)) ?? 0,
+    }));
 
   const saldoInicial = num(periodo.saldo_inicial);
   const saldoFinal = num(periodo.saldo_final);
@@ -131,6 +162,13 @@ export default async function QuincenaPage({ params }: { params: Params }) {
         {cerrada && "Quincena cerrada."}
       </p>
 
+      {!cerrada && <RegistrarPago periodoId={periodoId} plantilla={opcionesPlantilla} otros={otrosConceptos} />}
+
+      {grupos.size === 0 && (
+        <p className="mb-4 rounded-lg border border-dashed border-stone-300 p-4 text-center text-sm text-stone-500 dark:border-stone-700">
+          Todavía no has registrado pagos en esta quincena.
+        </p>
+      )}
       {[...grupos].map(([grupo, movs]) => (
         <section key={grupo} className="mb-4 rounded-lg bg-white px-4 py-2 shadow-sm dark:bg-stone-900">
           <h2 className="flex justify-between border-b border-stone-200 py-1 text-sm font-semibold dark:border-stone-800">
@@ -143,16 +181,15 @@ export default async function QuincenaPage({ params }: { params: Params }) {
         </section>
       ))}
 
-      {!cerrada && (
-        <form action={agregarMovimiento} className="mb-6 flex flex-wrap gap-2 rounded-lg bg-white p-4 shadow-sm dark:bg-stone-900">
-          <input type="hidden" name="periodo_id" value={periodoId} />
-          <select name="concepto_id" required className="flex-1 rounded border border-stone-300 bg-transparent px-2 py-1 dark:border-stone-700">
-            {conceptos.map((c) => <option key={c.id} value={c.id}>{c.nombre}</option>)}
-          </select>
-          <input name="monto" inputMode="decimal" placeholder="Monto" required className="w-28 rounded border border-stone-300 bg-transparent px-2 py-1 text-right dark:border-stone-700" />
-          <input name="nota" placeholder="Nota" className="w-full rounded border border-stone-300 bg-transparent px-2 py-1 sm:w-auto sm:flex-1 dark:border-stone-700" />
-          <button className="rounded bg-stone-800 px-3 py-1 text-white dark:bg-stone-200 dark:text-stone-900">Agregar</button>
-        </form>
+      {porHacer.length > 0 && (
+        <details className="mb-6 rounded-lg bg-white px-4 py-2 shadow-sm dark:bg-stone-900">
+          <summary className="cursor-pointer py-1 text-sm font-semibold">
+            Pendientes según la plantilla ({porHacer.length}) · {quetzales(porHacer.reduce((s, m) => s + (m.monto_real ?? m.monto_plan), 0))}
+          </summary>
+          <ul className="divide-y divide-stone-100 dark:divide-stone-800">
+            {porHacer.map((m) => <Fila key={m.id} m={m} cerrada={cerrada} provision={m.provision} />)}
+          </ul>
+        </details>
       )}
 
       <div className="flex flex-wrap items-center justify-between gap-2">
